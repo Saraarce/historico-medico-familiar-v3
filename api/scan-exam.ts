@@ -51,7 +51,9 @@ export default async function handler(req: any, res: any) {
             mimeType: finalMimeType,
           },
         },
-        prompt,
+        {
+          text: prompt,
+        },
       ],
       config: {
         systemInstruction: "Você é um assistente médico especialista em transcrição e digitalização de prontuários. Seu trabalho é extrair de forma precisa e confidencial informações de exames, receitas ou atestados enviados por imagem.",
@@ -77,7 +79,7 @@ export default async function handler(req: any, res: any) {
             },
             observations: {
               type: Type.STRING,
-              description: "Resumo interpretativo sucinto dos resultados relevantes, valores de referência ou dosagens prescritas (máximo de 2 parágrafos).",
+              description: "Resumo interpretativo sucinto dos resultados relevantes, values de referência ou dosagens prescritas (máximo de 2 parágrafos).",
             },
             category: {
               type: Type.STRING,
@@ -89,10 +91,18 @@ export default async function handler(req: any, res: any) {
       },
     });
 
-    const resultText = response.text;
+    let resultText = response.text;
     if (!resultText) {
       console.error("[Gemini Scan] Erro: O modelo retornou uma transcrição vazia.");
       throw new Error("Resposta de extração vazia do Gemini.");
+    }
+
+    resultText = resultText.trim();
+    if (resultText.startsWith("```")) {
+      const match = resultText.match(/^(?:```json)?\s*([\s\S]*?)\s*```$/i);
+      if (match) {
+        resultText = match[1].trim();
+      }
     }
 
     const duration = Date.now() - startTime;
