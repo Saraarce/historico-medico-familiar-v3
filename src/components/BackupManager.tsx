@@ -205,33 +205,62 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
       const fileContent = JSON.stringify(backup, null, 2);
       console.log(`[Google Drive Backup] JSON de backup gerado com sucesso. Tamanho total (caracteres): ${fileContent.length}`);
       
-      const q = encodeURIComponent("name = 'prontuario_familiar_backup.json' and trashed = false");
-      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc`;
-      console.log(`[Google Drive Backup] Buscando arquivo existente de nome 'prontuario_familiar_backup.json' no Drive: GET ${url}`);
-      const searchRes = await fetch(url, { headers: { Authorization: `Bearer ${googleToken}` } });
-      console.log(`[Google Drive Backup] Resposta de busca recebida. Status: ${searchRes.status}`);
-
-      if (!searchRes.ok) {
-        const errText = await searchRes.text().catch(() => "N/A");
-        console.error(`[Google Drive Backup] Falha ao verificar existência de arquivo anterior no Drive. Status: ${searchRes.status}`, errText);
-        if (searchRes.status === 401) {
-          handleGoogleSignOut();
-          throw new Error("Token expirado ou inválido. Por favor, conecte-se novamente.");
+      let existingFile = null;
+      const activeFile = dbService.getActiveDriveFile();
+      if (activeFile) {
+        console.log(`[Google Drive Backup] Encontrado arquivo ativo configurado anteriormente: ID="${activeFile.id}" (${activeFile.name})`);
+        try {
+          const checkUrl = `https://www.googleapis.com/drive/v3/files/${activeFile.id}?fields=id,name,modifiedTime,capabilities(canEdit)`;
+          const checkRes = await fetch(checkUrl, { headers: { Authorization: `Bearer ${googleToken}` } });
+          if (checkRes.ok) {
+            const fileMeta = await checkRes.json();
+            if (fileMeta.capabilities?.canEdit !== false) {
+              existingFile = { id: fileMeta.id, name: fileMeta.name, modifiedTime: fileMeta.modifiedTime };
+              console.log(`[Google Drive Backup] Arquivo ativo verificado com sucesso e é editável. ID="${existingFile.id}"`);
+            } else {
+              console.warn(`[Google Drive Backup] O arquivo ativo "${activeFile.name}" é de somente leitura.`);
+            }
+          } else {
+            console.warn(`[Google Drive Backup] O arquivo ativo anterior não pôde ser verificado. Status HTTP ${checkRes.status}.`);
+          }
+        } catch (e) {
+          console.error("[Google Drive Backup] Falha ao verificar arquivo ativo:", e);
         }
-        throw new Error(`Erro de resposta HTTP ${searchRes.status} do Google Drive.`);
       }
 
-      const searchData = await searchRes.json();
-      const existingFile = searchData.files?.[0] || null;
-      if (existingFile) {
-        console.log(`[Google Drive Backup] Arquivo existente encontrado! ID="${existingFile.id}", Modificado em: ${existingFile.modifiedTime}`);
-      } else {
-        console.log("[Google Drive Backup] Nenhum arquivo correspondente existente no Drive. Um novo arquivo será criado.");
+      if (!existingFile) {
+        console.log("[Google Drive Backup] Arquivo ativo de backup não definido ou inválido. Buscando por nome ou criando novo...");
+        const searchName = activeFile?.name || "prontuario_familiar_backup.json";
+        const q = encodeURIComponent(`name = '${searchName}' and trashed = false`);
+        const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime,capabilities(canEdit))&orderBy=modifiedTime desc`;
+        console.log(`[Google Drive Backup] Buscando arquivo existente de nome '${searchName}' no Drive: GET ${url}`);
+        const searchRes = await fetch(url, { headers: { Authorization: `Bearer ${googleToken}` } });
+
+        if (!searchRes.ok) {
+          const errText = await searchRes.text().catch(() => "N/A");
+          console.error(`[Google Drive Backup] Falha ao verificar existência de arquivo anterior no Drive. Status: ${searchRes.status}`, errText);
+          if (searchRes.status === 401) {
+            handleGoogleSignOut();
+            throw new Error("Token expirado ou inválido. Por favor, conecte-se novamente.");
+          }
+          throw new Error(`Erro de resposta HTTP ${searchRes.status} do Google Drive.`);
+        }
+
+        const searchData = await searchRes.json();
+        const foundFiles = searchData.files || [];
+        const editableFile = foundFiles.find((f: any) => f.capabilities?.canEdit !== false);
+        if (editableFile) {
+          existingFile = { id: editableFile.id, name: editableFile.name, modifiedTime: editableFile.modifiedTime };
+          console.log(`[Google Drive Backup] Arquivo editável com o nome "${searchName}" encontrado no escopo do Drive. ID="${existingFile.id}"`);
+          dbService.setActiveDriveFile(existingFile.id, existingFile.name);
+        } else if (foundFiles.length > 0) {
+          console.warn(`[Google Drive Backup] Foram encontrados arquivos com nome "${searchName}", mas nenhum é editável.`);
+        }
       }
 
       if (isMounted.current) {
         if (existingFile) {
-          setStatusMsg({ type: "info", text: "Atualizando arquivo existente no Google Drive..." });
+          setStatusMsg({ type: "info", text: `Atualizando arquivo "${existingFile.name}" existente no Google Drive...` });
         } else {
           setStatusMsg({ type: "info", text: "Criando novo arquivo de backup no Google Drive..." });
         }
@@ -251,8 +280,9 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
           body: fileContent,
         });
       } else {
+        const targetName = activeFile?.name || "prontuario_familiar_backup.json";
         const metadata = {
-          name: "prontuario_familiar_backup.json",
+          name: targetName,
           mimeType: "application/json",
         };
 
@@ -282,11 +312,19 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
       console.log(`[Google Drive Backup] Upload finalizado. Status HTTP de resposta: ${res.status}`);
 
       if (!res.ok) {
-        const errText = await res.text().catch(() => "{}");
+        const errText = await res.clone().text().catch(() => "{}");
         let parsedErr: any = {};
         try { parsedErr = JSON.parse(errText); } catch(e){}
         console.error(`[Google Drive Backup] Erro HTTP no envio do arquivo. Status: ${res.status}`, errText);
         throw new Error(parsedErr.error?.message || `Erro HTTP ${res.status}: ${errText}`);
+      }
+
+      // Save active drive file details so that future saves lock onto it!
+      const resJson = await res.clone().json().catch(() => ({}));
+      const committedFileId = resJson.id || (existingFile ? existingFile.id : null);
+      const committedFileName = resJson.name || (existingFile ? existingFile.name : (activeFile?.name || "prontuario_familiar_backup.json"));
+      if (committedFileId && committedFileName) {
+        dbService.setActiveDriveFile(committedFileId, committedFileName);
       }
 
       console.log("[Google Drive Backup] Upload do arquivo realizado com completo sucesso! Atualizando listagem de backups...");
@@ -421,6 +459,9 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
       } else {
         dbService.setLocalLastUpdate(new Date().toISOString());
       }
+
+      // Save active drive file details for successive saves
+      dbService.setActiveDriveFile(targetFile.id, targetFile.name);
 
       if (isMounted.current) {
         setStatusMsg({
