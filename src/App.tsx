@@ -166,6 +166,9 @@ export default function App() {
       } else {
         dbService.setLocalLastUpdate(new Date().toISOString());
       }
+
+      // Persist active Google Drive file details for subsequent edits
+      dbService.setActiveDriveFile(driveBackupToOffer.id, driveBackupToOffer.name);
       
       alert(
         `Sucesso! Prontuário restaurado com sucesso a partir do Google Drive.\n` +
