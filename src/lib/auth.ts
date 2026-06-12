@@ -11,6 +11,12 @@ provider.addScope("https://www.googleapis.com/auth/spreadsheets");
 provider.addScope("https://www.googleapis.com/auth/drive.file");
 provider.addScope("https://www.googleapis.com/auth/drive.readonly");
 
+// Force Google to show the consent dialog screen to ensure all scopes (especially drive.readonly for shared files) are explicitly approved by the user
+provider.setCustomParameters({
+  prompt: "consent",
+  access_type: "offline"
+});
+
 let isSigningIn = false;
 let cachedAccessToken: string | null = typeof window !== "undefined" ? localStorage.getItem("google_oauth_token") : null;
 
@@ -86,3 +92,4 @@ export const logout = async () => {
   }
   console.log("[Google Auth] Logout completo.");
 };
+
