@@ -1,11 +1,11 @@
 {
-  "short_name": "Prontuário",
-  "name": "Prontuário Médico Familiar",
+  "short_name": "Familink",
+  "name": "Familink Saúde",
   "description": "Controle seus exames, consultas, vacinas e prontuários médicos familiares",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#1e293b",
+  "background_color": "#ffffff",
   "theme_color": "#2563eb",
   "icons": [
     {
@@ -31,6 +31,22 @@
       "type": "image/jpeg",
       "sizes": "512x512",
       "purpose": "maskable"
+    }
+  ],
+  "categories": [
+    "medical",
+    "health"
+  ],
+  "shortcuts": [
+    {
+      "name": "Calendário de Consultas",
+      "url": "/#consultations",
+      "description": "Veja suas próximas consultas e agendamentos"
+    },
+    {
+      "name": "Meus Exames",
+      "url": "/#exams",
+      "description": "Acesse os laudos de exames dos membros"
     }
   ]
 }
