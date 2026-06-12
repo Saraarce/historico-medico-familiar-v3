@@ -6,10 +6,9 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
 const provider = new GoogleAuthProvider();
-// Request Google Sheets full edit scope, Google Drive file, and read-only scopes
+// Request Google Sheets full edit scope, and full Google Drive scope (needed for reading/writing shared files)
 provider.addScope("https://www.googleapis.com/auth/spreadsheets");
-provider.addScope("https://www.googleapis.com/auth/drive.file");
-provider.addScope("https://www.googleapis.com/auth/drive.readonly");
+provider.addScope("https://www.googleapis.com/auth/drive");
 
 // Force Google to show the consent dialog screen to ensure all scopes (especially drive.readonly for shared files) are explicitly approved by the user
 provider.setCustomParameters({
@@ -92,4 +91,3 @@ export const logout = async () => {
   }
   console.log("[Google Auth] Logout completo.");
 };
-
