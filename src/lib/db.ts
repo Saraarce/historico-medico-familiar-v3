@@ -79,6 +79,28 @@ export const dbService = {
     }
     return null;
   },
+  setActiveDriveFile(id: string, name: string) {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("active_google_drive_file_id", id);
+      window.localStorage.setItem("active_google_drive_file_name", name);
+    }
+  },
+  getActiveDriveFile(): { id: string; name: string } | null {
+    if (typeof window !== "undefined") {
+      const id = window.localStorage.getItem("active_google_drive_file_id");
+      const name = window.localStorage.getItem("active_google_drive_file_name");
+      if (id && name) {
+        return { id, name };
+      }
+    }
+    return null;
+  },
+  clearActiveDriveFile() {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("active_google_drive_file_id");
+      window.localStorage.removeItem("active_google_drive_file_name");
+    }
+  },
 
   // Clear all existing mock data tables
   clearAllData(): Promise<void> {
