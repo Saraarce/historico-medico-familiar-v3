@@ -129,18 +129,13 @@ Instruções Clínicas para o Resumo:
         model: "gemini-3.5-flash",
         contents: [
           {
-            role: "user",
-            parts: [
-              {
-                inlineData: {
-                  data: cleanBase64,
-                  mimeType: finalMimeType,
-                },
-              },
-              {
-                text: prompt,
-              },
-            ],
+            inlineData: {
+              data: cleanBase64,
+              mimeType: finalMimeType,
+            },
+          },
+          {
+            text: prompt,
           },
         ],
         config: {
