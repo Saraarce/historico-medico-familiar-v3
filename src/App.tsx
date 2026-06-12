@@ -40,6 +40,11 @@ export default function App() {
   const [showDriveOfferModal, setShowDriveOfferModal] = useState(false);
   const [autoRestoreLoading, setAutoRestoreLoading] = useState(false);
 
+  // PWA installation states
+  const [deferredPrompt, setDeferredPrompt] = useState<any | null>(null);
+  const [showInstallBtn, setShowInstallBtn] = useState(false);
+  const [pwaInstalled, setPwaInstalled] = useState(false);
+
   // Editing Member State
   const [editingMember, setEditingMember] = useState<FamilyMember | null>(null);
   const [isAddingNewMember, setIsAddingNewMember] = useState(false);
@@ -223,6 +228,52 @@ export default function App() {
     };
   }, []);
 
+  // Monitor PWA installation prompt lifecycle
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      console.log("[PWA Launcher] beforeinstallprompt disparado pelo navegador. App pronto para instalação.");
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallBtn(true);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+
+    const handleAppInstalled = () => {
+      console.log("[PWA Launcher] App instalado com sucesso pelo usuário.");
+      setPwaInstalled(true);
+      setShowInstallBtn(false);
+      setDeferredPrompt(null);
+    };
+
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    // Initial check if running as standalone
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      console.log("[PWA Launcher] Executando em modo Standalone (App Instalado).");
+      setPwaInstalled(true);
+      setShowInstallBtn(false);
+    }
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) {
+      console.log("[PWA Launcher] Botão de instalação acionado mas prompt adiado não está configurado.");
+      return;
+    }
+    console.log("[PWA Launcher] Mostrando diálogo padrão de instalação do navegador...");
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`[PWA Launcher] Decisão do usuário para instalação: ${outcome}`);
+    setDeferredPrompt(null);
+    setShowInstallBtn(false);
+  };
+
   const handleAddNewMemberClick = () => {
     setIsAddingNewMember(true);
     setEditForm({
@@ -395,7 +446,19 @@ export default function App() {
           </div>
 
           {/* Quick Action elements */}
-          <div className="select-none shrink-0">
+          <div className="select-none shrink-0 flex items-center gap-1.5 sm:gap-2">
+            {showInstallBtn && (
+              <button
+                type="button"
+                id="btn-install-pwa"
+                onClick={handleInstallClick}
+                className="px-2.5 py-1.5 sm:px-3.5 sm:py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold border border-emerald-500 rounded-xl text-[10px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 hover:brightness-105"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-white shrink-0" />
+                <span className="hidden sm:inline">Instalar Aplicativo</span>
+                <span className="sm:hidden">Instalar</span>
+              </button>
+            )}
             <button
               type="button"
               id="btn-open-backup"
