@@ -18,20 +18,25 @@ async function startServer() {
   app.use(express.json({ limit: "20mb" }));
   app.use(express.urlencoded({ limit: "20mb", extended: true }));
 
-  // Initialize Gemini API Client server-side
-  const apiKey = process.env.GEMINI_API_KEY;
-  const ai = new GoogleGenAI({
-    apiKey: apiKey,
-    httpOptions: {
-      headers: {
-        "User-Agent": "aistudio-build",
+  // Lazy initialize Gemini API Client server-side to prevent crash on startup if missing
+  const getGoogleGenAI = () => {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+      throw new Error("GEMINI_API_KEY is not configured.");
+    }
+    return new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
       },
-    },
-  });
+    });
+  };
 
   // Health check
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", apiKeyConfigured: !!apiKey });
+    res.json({ status: "ok", apiKeyConfigured: !!process.env.GEMINI_API_KEY });
   });
 
   // Endpoint to generate an AI summary for a family member
@@ -43,11 +48,7 @@ async function startServer() {
         return res.status(400).json({ error: "Dados do membro da família não fornecidos." });
       }
 
-      if (!apiKey) {
-        return res.status(500).json({
-          error: "Chave de API do Gemini não configurada no servidor. Verifique as configurações.",
-        });
-      }
+      const ai = getGoogleGenAI();
 
       const formattedConsultations = (consultations || [])
         .map((c: any) => `- Data: ${c.date} | Especialidade: ${c.specialty} | Médico: ${c.doctor} | Local: ${c.facility} | Motivo: ${c.reason} | Medicamentos/Recomendações: ${c.prescription || "Nenhuma"} | Notas: ${c.notes || "Sem observações"}`)
@@ -116,11 +117,7 @@ Instruções Clínicas para o Resumo:
         return res.status(400).json({ error: "Nenhuma imagem foi enviada." });
       }
 
-      if (!apiKey) {
-        return res.status(500).json({
-          error: "Chave de API do Gemini não configurada no servidor. Verifique as configurações.",
-        });
-      }
+      const ai = getGoogleGenAI();
 
       // Universal regex to strip ANY base64 prefix safely (such as application/pdf or image/png)
       const cleanBase64 = imageBase64.replace(/^data:[a-zA-Z0-9/\-+.]+;base64,/, "");
@@ -132,12 +129,19 @@ Instruções Clínicas para o Resumo:
         model: "gemini-3.5-flash",
         contents: [
           {
-            inlineData: {
-              data: cleanBase64,
-              mimeType: finalMimeType,
-            },
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  data: cleanBase64,
+                  mimeType: finalMimeType,
+                },
+              },
+              {
+                text: prompt,
+              },
+            ],
           },
-          prompt,
         ],
         config: {
           systemInstruction: "Você é um assistente médico especialista em transcrição e digitalização de prontuários. Seu trabalho é extrair de forma precisa e confidencial informações de exames, receitas ou atestados enviados por imagem.",
@@ -175,9 +179,17 @@ Instruções Clínicas para o Resumo:
         },
       });
 
-      const resultText = response.text;
+      let resultText = response.text;
       if (!resultText) {
         throw new Error("Resposta de extração vazia do Gemini.");
+      }
+
+      resultText = resultText.trim();
+      if (resultText.startsWith("```")) {
+        const match = resultText.match(/^(?:```json)?\s*([\s\S]*?)\s*```$/i);
+        if (match) {
+          resultText = match[1].trim();
+        }
       }
 
       const extractedData = JSON.parse(resultText);
