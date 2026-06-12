@@ -229,8 +229,10 @@ export default function MemberProfile({
 
   // Age Calculator
   const getAge = (birthDate: string) => {
+    if (!birthDate) return null;
     const today = new Date();
     const birth = new Date(birthDate);
+    if (isNaN(birth.getTime())) return null;
     let age = today.getFullYear() - birth.getFullYear();
     const m = today.getMonth() - birth.getMonth();
     if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
@@ -698,13 +700,13 @@ export default function MemberProfile({
 
         {/* Centered Profile Avatar */}
         <div className={`w-16 h-16 rounded-2xl ${member.avatarColor} text-white flex items-center justify-center font-extrabold text-2xl shadow-sm uppercase shrink-0 mx-auto`}>
-          {member.name.substring(0, 2)}
+          {(member.name || member.relationship).substring(0, 2)}
         </div>
         
         <div className="w-full mt-3 flex flex-col items-center">
           {/* Member Name centered */}
           <h1 className="text-2xl font-black text-gray-900 tracking-tight text-center truncate max-w-full leading-tight">
-            {member.name}
+            {member.name || "Sem Nome"}
           </h1>
 
           {/* BELOW: Relationship badge */}
@@ -718,7 +720,11 @@ export default function MemberProfile({
           <div className="mt-2.5 flex justify-center select-none">
             <div className="bg-slate-100 border border-slate-200/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-xs text-gray-600 font-semibold">
               <User className="w-3.5 h-3.5 text-gray-400" />
-              <span>{getAge(member.birthDate)} anos ({formatDate(member.birthDate)})</span>
+              <span>
+                {getAge(member.birthDate) !== null 
+                  ? `${getAge(member.birthDate)} anos (${formatDate(member.birthDate)})`
+                  : "Data de nascimento não definida"}
+              </span>
             </div>
           </div>
 
