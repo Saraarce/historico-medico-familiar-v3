@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState } from "react";
 import { 
-  Heart, BrainCircuit, Bell, Settings, Award, Users, 
+  HeartPulse, BrainCircuit, Bell, Settings, Award, Users, 
   Plus, Edit3, CheckCircle, Smartphone, Info, Save, X, Database,
   Cloud, RefreshCw, AlertTriangle, Download, Trash2
 } from "lucide-react";
@@ -359,7 +359,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
         <div className="w-14 h-14 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4" />
-        <h3 className="text-gray-800 font-bold text-lg select-none">Iniciando Prontuário Médico Familiar...</h3>
+        <h3 className="text-gray-800 font-bold text-lg select-none">Iniciando Familink Saúde...</h3>
         <p className="text-sm text-gray-500 mt-1 select-none">Configurando base de dados offline e de alta velocidade.</p>
       </div>
     );
@@ -371,12 +371,22 @@ export default function App() {
       <header className="sticky top-0 z-40 bg-white border-b border-slate-200/60 shadow-xs" id="app-header">
         <div className="max-w-5xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-            <div className="p-1.5 sm:p-2 bg-gradient-to-tr from-blue-600 to-indigo-600 text-white rounded-xl shadow-xs shrink-0">
-              <Heart className="w-4 h-4 sm:w-5 sm:h-5 fill-white/10" />
+            <div className="relative flex items-center justify-center shrink-0">
+              {/* Outer soft glowing background ring */}
+              <div className="absolute inset-0 bg-blue-600/10 rounded-2xl scale-125 blur-xs animate-pulse duration-3000" />
+              {/* Inner gradient container */}
+              <div className="relative p-1.5 sm:p-2 bg-gradient-to-tr from-blue-600 via-indigo-600 to-violet-600 text-white rounded-xl shadow-md border border-white/10 flex items-center justify-center">
+                <HeartPulse className="w-4 h-4 sm:w-5 sm:h-5 text-white/95 stroke-[2.2]" />
+                {/* Embedded dynamic link/heart sub-dot badge */}
+                <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              </div>
             </div>
             <div className="min-w-0">
               <h1 className="text-sm sm:text-base md:text-lg font-black tracking-tight text-gray-900 leading-tight truncate">
-                Histórico Médico Familiar
+                Familink Saúde
               </h1>
               <span className="text-[9px] sm:text-[10px] font-extrabold text-blue-600 tracking-wider uppercase block mt-0.5 truncate">
                 {members.length} {members.length === 1 ? "Integrante" : "Integrantes"} • Prontuário IA
@@ -693,7 +703,7 @@ export default function App() {
                     onClick={() => handleDeleteMember(editingMember.id)}
                     className={`py-2 px-3 rounded-xl text-[10px] font-extrabold transition-all duration-150 flex items-center gap-1 cursor-pointer active:scale-95 shrink-0 select-none ${
                       confirmDeleteId === editingMember.id
-                        ? "bg-red-650 text-white animate-pulse"
+                        ? "bg-red-600 text-white animate-pulse"
                         : "bg-red-50 hover:bg-red-100 text-red-600 border border-red-200"
                     }`}
                   >
@@ -756,7 +766,7 @@ export default function App() {
               </div>
             </div>
 
-            <p className="text-xs text-gray-650 font-medium leading-relaxed mb-4">
+            <p className="text-xs text-gray-600 font-medium leading-relaxed mb-4">
               Encontramos um arquivo de prontuário clínico salvo no seu Google Drive com atualizações mais recentes do que as informações salvas localmente neste navegador.
             </p>
 

@@ -1,5 +1,5 @@
 {
-  "name": "Histórico Médico Familiar",
+  "name": "Familink Saúde",
   "description": "Aplicativo completo para controle e monitoramento de histórico médico familiar, com suporte para 6 integrantes, prontuário de consultas e exames, gráficos de saúde, anexo de fotos e inteligência artificial para leitura de exames.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

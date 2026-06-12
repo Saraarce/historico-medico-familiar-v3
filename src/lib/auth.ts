@@ -19,6 +19,16 @@ provider.setCustomParameters({
 let isSigningIn = false;
 let cachedAccessToken: string | null = typeof window !== "undefined" ? localStorage.getItem("google_oauth_token") : null;
 
+// Helper to mask PII for secure execution logging
+const maskEmail = (email: string | null | undefined): string => {
+  if (!email) return "Nenhum";
+  const parts = email.split("@");
+  if (parts.length !== 2) return "Usuário Protegido";
+  const [local, domain] = parts;
+  const maskedLocal = local.length > 2 ? `${local.slice(0, 2)}***` : `${local[0] || ""}***`;
+  return `${maskedLocal}@${domain}`;
+};
+
 // Initialize auth state listener
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
@@ -26,7 +36,7 @@ export const initAuth = (
 ) => {
   console.log("[Google Auth] Inicializando escuta de estado de autenticação Firebase...");
   return onAuthStateChanged(auth, async (user: User | null) => {
-    console.log("[Google Auth] onAuthStateChanged disparado. Usuário:", user ? user.email : "Nenhum");
+    console.log("[Google Auth] onAuthStateChanged disparado. Status Usuário:", user ? `Conectado (${maskEmail(user.email)})` : "Nenhum");
     if (user) {
       if (!cachedAccessToken) {
         cachedAccessToken = typeof window !== "undefined" ? localStorage.getItem("google_oauth_token") : null;
@@ -57,7 +67,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     console.log("[Google Auth] Iniciando fluxo de Sign-In do Google via Popup...");
     isSigningIn = true;
     const result = await signInWithPopup(auth, provider);
-    console.log("[Google Auth] Login efetuado para o usuário:", result.user.email);
+    console.log("[Google Auth] Login efetuado com sucesso para o usuário:", maskEmail(result.user.email));
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       console.error("[Google Auth] Erro Crítico: Credencial retornada não contém token de acesso OAuth.");

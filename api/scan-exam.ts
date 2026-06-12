@@ -6,19 +6,28 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Método não permitido. Utilize POST." });
   }
 
+  const startTime = Date.now();
   try {
     const { imageBase64, mimeType } = req.body;
 
     if (!imageBase64) {
+      console.warn("[Gemini Scan] Tentativa de escaneamento sem arquivo/imagem base64.");
       return res.status(400).json({ error: "Nenhuma imagem foi enviada." });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
+      console.error("[Gemini Scan] Falha de Configuração: GEMINI_API_KEY não configurada no servidor.");
       return res.status(500).json({
         error: "Chave de API do Gemini não configurada no servidor. Verifique as configurações no painel da Vercel.",
       });
     }
+
+    const cleanBase64 = imageBase64.replace(/^data:[a-zA-Z0-9/\-+.]+;base64,/, "");
+    const finalMimeType = mimeType || "image/jpeg";
+
+    console.log(`[Gemini Scan] Iniciando transcrição/escaner de documento.`);
+    console.log(`[Gemini Scan] Dados do anexo: MimeType="${finalMimeType}", Tamanho Base64=${cleanBase64.length} caracteres.`);
 
     // Initialize Gemini API Client
     const ai = new GoogleGenAI({
@@ -30,12 +39,9 @@ export default async function handler(req: any, res: any) {
       },
     });
 
-    // Remove any base64 prefix
-    const cleanBase64 = imageBase64.replace(/^data:[a-zA-Z0-9/\-+.]+;base64,/, "");
-    const finalMimeType = mimeType || "image/jpeg";
-
     const prompt = `Analise esta imagem ou documento PDF de laudo médico, exame clínico, receita ou atestado. Extraia os detalhes clínicos relevantes em português e organize-os estruturadamente com base nos campos solicitados. Se algum campo original não estiver definido no documento, retorne uma string vazia ou use sua melhor inferência sensata de acordo com o contexto do laudo.`;
 
+    console.log(`[Gemini Scan] Solicitando processamento multimodal no modelo "gemini-3.5-flash".`);
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: [
@@ -85,13 +91,18 @@ export default async function handler(req: any, res: any) {
 
     const resultText = response.text;
     if (!resultText) {
+      console.error("[Gemini Scan] Erro: O modelo retornou uma transcrição vazia.");
       throw new Error("Resposta de extração vazia do Gemini.");
     }
+
+    const duration = Date.now() - startTime;
+    console.log(`[Gemini Scan] Documento processado e estruturado em JSON com completo sucesso em ${duration}ms!`);
 
     const extractedData = JSON.parse(resultText);
     return res.status(200).json(extractedData);
   } catch (error: any) {
-    console.error("Erro ao analisar imagem com Gemini:", error);
+    const duration = Date.now() - startTime;
+    console.error(`[Gemini Scan] Falha ao processar imagem após ${duration}ms:`, error);
     return res.status(500).json({
       error: "Falha ao analisar a imagem do exame utilizando a Inteligência Artificial.",
       details: error.message || String(error),

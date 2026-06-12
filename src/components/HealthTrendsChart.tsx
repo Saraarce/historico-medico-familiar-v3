@@ -1,244 +1,335 @@
-import { FamilyMember, Consultation, Exam, HealthVital, Vaccine } from "../types";
+import React, { useState } from "react";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+import { HealthVital, FamilyMember } from "../types";
+import { TrendingUp, Activity, ShieldAlert, Heart, Ruler, Scale } from "lucide-react";
 
-const DB_NAME = "FamilyMedicalDB";
-const DB_VERSION = 1;
+interface HealthTrendsChartProps {
+  member: FamilyMember;
+  vitals: HealthVital[];
+}
 
-export function initDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+type VitalMetric = "weight" | "bloodPressure" | "bloodGlucose" | "height" | "imc";
 
-    request.onerror = () => {
-      reject(new Error("Erro ao abrir banco de dados local IndexedDB."));
-    };
+export default function HealthTrendsChart({ member, vitals }: HealthTrendsChartProps) {
+  const [activeMetric, setActiveMetric] = useState<VitalMetric>("weight");
 
-    request.onsuccess = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result;
-      resolve(db);
-    };
+  // Age Calculator
+  const getAge = (birthDate: string) => {
+    if (!birthDate) return 30;
+    const today = new Date();
+    const birth = new Date(birthDate);
+    if (isNaN(birth.getTime())) return 30;
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age;
+  };
 
-    request.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result;
+  const isChild = getAge(member.birthDate) < 18;
 
-      if (!db.objectStoreNames.contains("members")) {
-        db.createObjectStore("members", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("consultations")) {
-        db.createObjectStore("consultations", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("exams")) {
-        db.createObjectStore("exams", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("vitals")) {
-        db.createObjectStore("vitals", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("vaccines")) {
-        db.createObjectStore("vaccines", { keyPath: "id" });
-      }
+  // Filter and sort vitals by date safely
+  const memberVitals = vitals
+    .filter((v) => v.memberId === member.id && v.date && typeof v.date === "string")
+    .sort((a, b) => {
+      const aTime = new Date(a.date).getTime();
+      const bTime = new Date(b.date).getTime();
+      if (isNaN(aTime)) return 1;
+      if (isNaN(bTime)) return -1;
+      return aTime - bTime;
+    });
+
+  let runningWeight: number | null = null;
+  let runningHeight: number | null = null;
+
+  // Format dates for display safely
+  const chartData = memberVitals.map((v) => {
+    let formattedDate = "";
+    const parts = v.date.split("-");
+    if (parts.length >= 3) {
+      const year = parts[0];
+      const month = parts[1];
+      const day = parts[2];
+      formattedDate = `${day}/${month}`;
+    } else {
+      formattedDate = v.date || "s/d";
+    }
+    
+    if (v.weight !== undefined && v.weight !== null) runningWeight = v.weight;
+    if (v.height !== undefined && v.height !== null) runningHeight = v.height;
+
+    let calcedImc: number | null = null;
+    if (runningWeight && runningHeight) {
+      const hMeters = runningHeight / 100;
+      calcedImc = Number((runningWeight / (hMeters * hMeters)).toFixed(1));
+    }
+
+    return {
+      ...v,
+      formattedDate,
+      // For blood pressure double line
+      systolic: v.systolicBP || null,
+      diastolic: v.diastolicBP || null,
+      glucose: v.bloodGlucose || null,
+      weight: v.weight || null,
+      height: v.height || null,
+      imc: calcedImc
     };
   });
-}
 
-// Low-level helper to execute a transaction
-function runTx<T>(
-  storeName: string,
-  mode: IDBTransactionMode,
-  callback: (store: IDBObjectStore) => IDBRequest
-): Promise<T> {
-  return initDB().then((db) => {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, mode);
-      const store = tx.objectStore(storeName);
-      const request = callback(store);
+  // Calculate stats
+  const latestVital = memberVitals[memberVitals.length - 1];
+  const latestWithImc = [...chartData].reverse().find((d) => d.imc !== null);
+  const latestImc = latestWithImc ? latestWithImc.imc : null;
 
-      tx.oncomplete = () => {
-        resolve(request.result as T);
-      };
+  const getImcStatusLabel = (val: number) => {
+    if (val < 18.5) return "Abaixo do peso";
+    if (val < 25) return "Peso normal";
+    if (val < 30) return "Sobrepeso";
+    if (val < 35) return "Obesidade I";
+    if (val < 40) return "Obesidade II";
+    return "Obesidade III";
+  };
 
-      tx.onerror = () => {
-        reject(tx.error);
-      };
-    });
-  });
-}
-
-function updateLocalTimestamp() {
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem("clinical_last_update", new Date().toISOString());
-  }
-}
-
-export const dbService = {
-  setLocalLastUpdate(isoString?: string) {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("clinical_last_update", isoString || new Date().toISOString());
+  const getImcStatusColor = (val: number) => {
+    if (val < 18.5) return "text-amber-600 bg-amber-50 border border-amber-100";
+    if (val < 25) return "text-emerald-600 bg-emerald-50 border border-emerald-100";
+    if (val < 30) return "text-amber-600 bg-amber-50 border border-amber-100";
+    return "text-red-600 bg-red-50 border border-red-100";
+  };
+  
+  const metricConfig = {
+    weight: {
+      label: "Peso Corporal",
+      color: "#3b82f6", // blue
+      unit: " kg",
+      icon: TrendingUp,
+      desc: "Acompanhamento de peso saudável e índice de massa corporal",
+      hasData: memberVitals.some(v => v.weight !== undefined)
+    },
+    bloodPressure: {
+      label: "Pressão Arterial",
+      color: "#ef4444", // red
+      unit: " mmHg",
+      icon: Heart,
+      desc: "Níveis sistólicos (máxima) e diastólicos (mínima)",
+      hasData: memberVitals.some(v => v.systolicBP !== undefined && v.diastolicBP !== undefined)
+    },
+    bloodGlucose: {
+      label: "Glicemia de Jejum",
+      color: "#eab308", // yellow/amber
+      unit: " mg/dL",
+      icon: Activity,
+      desc: "Controle e prevenção de picos e hipoglicemia",
+      hasData: memberVitals.some(v => v.bloodGlucose !== undefined)
+    },
+    height: {
+      label: "Estatura / Altura",
+      color: "#ec4899", // pink
+      unit: " cm",
+      icon: Ruler,
+      desc: "Curva de crescimento e evolução estatural infantil",
+      hasData: memberVitals.some(v => v.height !== undefined)
+    },
+    imc: {
+      label: "Índice de Massa Corporal (IMC)",
+      color: "#10b981", // emerald
+      unit: "",
+      icon: Scale,
+      desc: "Relação peso-altura: <18.5 Baixo | 18.5-24.9 Normal | 25-29.9 Sobrepeso | >=30 Obesidade",
+      hasData: chartData.some(v => v.imc !== null)
     }
-  },
-  getLocalLastUpdate(): string | null {
-    if (typeof window !== "undefined") {
-      return window.localStorage.getItem("clinical_last_update");
-    }
-    return null;
-  },
-  setActiveDriveFile(id: string, name: string) {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("active_google_drive_file_id", id);
-      window.localStorage.setItem("active_google_drive_file_name", name);
-    }
-  },
-  getActiveDriveFile(): { id: string; name: string } | null {
-    if (typeof window !== "undefined") {
-      const id = window.localStorage.getItem("active_google_drive_file_id");
-      const name = window.localStorage.getItem("active_google_drive_file_name");
-      if (id && name) {
-        return { id, name };
-      }
-    }
-    return null;
-  },
-  clearActiveDriveFile() {
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem("active_google_drive_file_id");
-      window.localStorage.removeItem("active_google_drive_file_name");
-    }
-  },
+  };
 
-  // Clear all existing mock data tables
-  clearAllData(): Promise<void> {
-    const stores = ["members", "consultations", "exams", "vitals", "vaccines"];
-    return initDB().then((db) => {
-      const tx = db.transaction(stores, "readwrite");
-      stores.forEach((storeName) => {
-        tx.objectStore(storeName).clear();
-      });
-      return new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => {
-          updateLocalTimestamp();
-          resolve();
-        };
-        tx.onerror = () => reject(tx.error);
-      });
-    });
-  },
+  const config = metricConfig[activeMetric];
 
-  // Seed the system with the spreadsheet dataset
-  seedNewData(): Promise<FamilyMember[]> {
-    const defaultMembers: FamilyMember[] = [
-      { id: "mae_primary", name: "", relationship: "Mãe", birthDate: "", bloodType: "", allergies: "", avatarColor: "bg-purple-500", comorbidities: "", medications: "" }
-    ];
-
-    const defaultConsultations: Consultation[] = [];
-    const defaultExams: Exam[] = [];
-    const defaultVitals: HealthVital[] = [];
-    const defaultVaccines: Vaccine[] = [];
-
-    // Bulk save in parallel with low-level tx
-    return Promise.all([
-      ...defaultMembers.map((m) => this.saveMember(m)),
-      ...defaultConsultations.map((c) => this.saveConsultation(c)),
-      ...defaultExams.map((e) => this.saveExam(e)),
-      ...defaultVitals.map((v) => this.saveVital(v)),
-      ...defaultVaccines.map((v) => this.saveVaccine(v))
-    ]).then(() => {
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("has_seeded_v2", "true");
-      }
-      return defaultMembers;
-    });
-  },
-
-  getMembers(): Promise<FamilyMember[]> {
-    return runTx<FamilyMember[]>("members", "readonly", (store) => store.getAll()).then((list) => {
-      const hasOldData = list.some(
-        (m) =>
-          m.id === "member_1" ||
-          m.name === "Carlos Silva" ||
-          m.name === "Ana Silva" ||
-          m.id === "isaac" ||
-          m.id === "matheus" ||
-          m.id === "samuel"
+  // Render chart conditionally
+  const renderChart = () => {
+    if (chartData.length === 0 || !config.hasData) {
+      return (
+        <div className="h-64 flex flex-col items-center justify-center text-center p-6 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+          <ShieldAlert className="w-8 h-8 text-gray-400 mb-2 animate-pulse" />
+          <p className="text-sm font-semibold text-gray-700">Histórico de dados indisponível</p>
+          <p className="text-xs text-gray-500 mt-1 max-w-xs font-medium">Insira novas aferições clínicas de {member.name || member.relationship || "este integrante"} com peso e altura para ativar o gráfico.</p>
+        </div>
       );
-      const isSeededV2 = typeof window !== "undefined" && window.localStorage.getItem("has_seeded_v2") === "true";
+    }
 
-      if (hasOldData || !isSeededV2) {
-        return this.clearAllData().then(() => this.seedNewData());
-      }
-      if (list.length === 0) {
-        if (typeof window !== "undefined" && window.localStorage.getItem("has_seeded_v2") === "true") {
-          return [];
-        }
-        return this.seedNewData();
-      }
-      return list;
-    });
-  },
+    return (
+      <div className="h-72 w-full mt-4" id="recharts-wrapper">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+            <XAxis 
+              dataKey="formattedDate" 
+              tickLine={false} 
+              axisLine={false} 
+              tick={{ fill: "#9ca3af", fontSize: 11 }} 
+            />
+            <YAxis 
+              tickLine={false} 
+              axisLine={false} 
+              domain={["auto", "auto"]}
+              tick={{ fill: "#9ca3af", fontSize: 11 }} 
+            />
+            <Tooltip 
+              contentStyle={{ background: "#ffffff", border: "1px solid #f3f4f6", borderRadius: "12px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}
+              labelStyle={{ fontWeight: "bold", fontSize: "12px", color: "#1f2937" }}
+              itemStyle={{ fontSize: "12px" }}
+            />
+            <Legend 
+              verticalAlign="top" 
+              height={36} 
+              iconType="circle"
+              iconSize={8}
+              wrapperStyle={{ fontSize: "12px", fontWeight: "medium" }}
+            />
+            
+            {activeMetric === "weight" && (
+              <Line 
+                name="Peso (kg)" 
+                type="monotone" 
+                dataKey="weight" 
+                stroke="#3b82f6" 
+                strokeWidth={3} 
+                activeDot={{ r: 8 }} 
+                dot={{ r: 4, strokeWidth: 2 }}
+                connectNulls
+              />
+            )}
 
-  saveMember(member: FamilyMember): Promise<void> {
-    updateLocalTimestamp();
-    return runTx<void>("members", "readwrite", (store) => store.put(member));
-  },
+            {activeMetric === "bloodPressure" && (
+              <>
+                <Line 
+                   name="Sistólica (Máx)" 
+                  type="monotone" 
+                  dataKey="systolic" 
+                  stroke="#ef4444" 
+                  strokeWidth={3} 
+                  activeDot={{ r: 8 }} 
+                  dot={{ r: 4, strokeWidth: 2 }}
+                  connectNulls
+                />
+                <Line 
+                  name="Diastólica (Mín)" 
+                  type="monotone" 
+                  dataKey="diastolic" 
+                  stroke="#ff8a8a" 
+                  strokeWidth={2.5} 
+                  activeDot={{ r: 6 }} 
+                  dot={{ r: 3, strokeWidth: 1.5 }}
+                  connectNulls
+                />
+              </>
+            )}
 
-  deleteMember(id: string): Promise<void> {
-    updateLocalTimestamp();
-    return runTx<void>("members", "readwrite", (store) => store.delete(id));
-  },
+            {activeMetric === "bloodGlucose" && (
+              <Line 
+                name="Glicemia (mg/dL)" 
+                type="monotone" 
+                dataKey="glucose" 
+                stroke="#d97706" 
+                strokeWidth={3} 
+                activeDot={{ r: 8 }} 
+                dot={{ r: 4, strokeWidth: 2 }}
+                connectNulls
+              />
+            )}
 
-  // Consultations
-  getConsultations(): Promise<Consultation[]> {
-    return runTx<Consultation[]>("consultations", "readonly", (store) => store.getAll());
-  },
+            {activeMetric === "height" && (
+              <Line 
+                name="Altura (cm)" 
+                type="monotone" 
+                dataKey="height" 
+                stroke="#ec4899" 
+                strokeWidth={3} 
+                activeDot={{ r: 8 }} 
+                dot={{ r: 4, strokeWidth: 2 }}
+                connectNulls
+              />
+            )}
 
-  saveConsultation(consultation: Consultation): Promise<void> {
-    updateLocalTimestamp();
-    return runTx<void>("consultations", "readwrite", (store) => store.put(consultation));
-  },
+            {activeMetric === "imc" && (
+              <Line 
+                name="IMC" 
+                type="monotone" 
+                dataKey="imc" 
+                stroke="#10b981" 
+                strokeWidth={3} 
+                activeDot={{ r: 8 }} 
+                dot={{ r: 4, strokeWidth: 2 }}
+                connectNulls
+              />
+            )}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  };
 
-  deleteConsultation(id: string): Promise<void> {
-    updateLocalTimestamp();
-    return runTx<void>("consultations", "readwrite", (store) => store.delete(id));
-  },
+  const visibleMetrics: VitalMetric[] = isChild
+    ? ["weight", "bloodPressure", "bloodGlucose", "height", "imc"]
+    : ["weight", "bloodPressure", "bloodGlucose", "imc"];
 
-  // Exams
-  getExams(): Promise<Exam[]> {
-    return runTx<Exam[]>("exams", "readonly", (store) => store.getAll());
-  },
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 mt-4" id={`trends-chart-${member.id}`}>
+      {/* Metric Selector Tabs */}
+      <div className="flex flex-wrap gap-2 bg-gray-50 p-1.5 rounded-xl mb-5">
+        {visibleMetrics.map((metric) => {
+          const isSelected = activeMetric === metric;
+          const cfg = metricConfig[metric];
+          const Icon = cfg.icon;
+          return (
+            <button
+              key={metric}
+              type="button"
+              onClick={() => setActiveMetric(metric)}
+              className={`flex-1 min-w-[90px] sm:min-w-0 flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                isSelected 
+                  ? "bg-white text-gray-900 shadow-xs border border-gray-200/50" 
+                  : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              <Icon className={`w-4 h-4 ${isSelected ? "text-blue-500" : "text-gray-400"}`} />
+              <span className="hidden sm:inline">{cfg.label}</span>
+              <span className="sm:hidden">{cfg.label.split(" ")[0]}</span>
+            </button>
+          );
+        })}
+      </div>
 
-  saveExam(exam: Exam): Promise<void> {
-    updateLocalTimestamp();
-    return runTx<void>("exams", "readwrite", (store) => store.put(exam));
-  },
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <h3 className="font-bold text-gray-800 text-sm">{config.label}</h3>
+          <p className="text-xs text-gray-500 mt-0.5">{config.desc}</p>
+        </div>
+        
+        {/* Latest entry indicator */}
+        {latestVital && config.hasData && (
+          <div className="text-right">
+            <span className="text-2xs font-bold text-gray-400 uppercase tracking-wider block font-bold">Última Aferição</span>
+            <div className="text-sm font-bold text-gray-900 mt-0.5">
+              {activeMetric === "weight" && latestVital.weight ? `${latestVital.weight} kg` : ""}
+              {activeMetric === "bloodGlucose" && latestVital.bloodGlucose ? `${latestVital.bloodGlucose} mg/dL` : ""}
+              {activeMetric === "bloodPressure" && latestVital.systolicBP && latestVital.diastolicBP 
+                ? `${latestVital.systolicBP}/${latestVital.diastolicBP} mmHg` 
+                : ""}
+              {activeMetric === "height" && latestVital.height ? `${latestVital.height} cm` : ""}
+              {activeMetric === "imc" && latestImc ? (
+                <div className="flex flex-col items-end">
+                  <span className="text-base font-extrabold text-emerald-600">{latestImc}</span>
+                  <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded border ${getImcStatusColor(latestImc)} mt-1 select-none`}>
+                    {getImcStatusLabel(latestImc)}
+                  </span>
+                </div>
+              ) : ""}
+            </div>
+          </div>
+        )}
+      </div>
 
-  deleteExam(id: string): Promise<void> {
-    updateLocalTimestamp();
-    return runTx<void>("exams", "readwrite", (store) => store.delete(id));
-  },
-
-  // Health Vitals (Tracking data for charts)
-  getVitals(): Promise<HealthVital[]> {
-    return runTx<HealthVital[]>("vitals", "readonly", (store) => store.getAll());
-  },
-
-  saveVital(vital: HealthVital): Promise<void> {
-    updateLocalTimestamp();
-    return runTx<void>("vitals", "readwrite", (store) => store.put(vital));
-  },
-
-  deleteVital(id: string): Promise<void> {
-    updateLocalTimestamp();
-    return runTx<void>("vitals", "readwrite", (store) => store.delete(id));
-  },
-
-  // Vaccines
-  getVaccines(): Promise<Vaccine[]> {
-    return runTx<Vaccine[]>("vaccines", "readonly", (store) => store.getAll());
-  },
-
-  saveVaccine(vaccine: Vaccine): Promise<void> {
-    updateLocalTimestamp();
-    return runTx<void>("vaccines", "readwrite", (store) => store.put(vaccine));
-  },
-
-  deleteVaccine(id: string): Promise<void> {
-    updateLocalTimestamp();
-    return runTx<void>("vaccines", "readwrite", (store) => store.delete(id));
-  }
-};
+      {renderChart()}
+    </div>
+  );
+}

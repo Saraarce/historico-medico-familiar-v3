@@ -418,7 +418,8 @@ export default function SpreadsheetImporter({ member, onDataImported, isOpen, on
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `modelo_planilha_${selectedType}_${member.name.toLowerCase().replace(/\s+/g, "_")}.csv`;
+    const safeName = (member.name || member.relationship || "membro").toLowerCase().replace(/\s+/g, "_");
+    link.download = `modelo_planilha_${selectedType}_${safeName}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -853,7 +854,7 @@ export default function SpreadsheetImporter({ member, onDataImported, isOpen, on
                     <button
                       type="button"
                       onClick={handleGoogleSignOut}
-                      className="text-[10px] font-extrabold uppercase text-gray-500 hover:text-red-650 px-2.5 py-1.5 border border-gray-250 rounded-lg flex items-center gap-1 select-none cursor-pointer"
+                      className="text-[10px] font-extrabold uppercase text-gray-500 hover:text-red-600 px-2.5 py-1.5 border border-gray-250 rounded-lg flex items-center gap-1 select-none cursor-pointer"
                     >
                       <LogOut className="w-3 h-3 text-gray-400" />
                       Sair

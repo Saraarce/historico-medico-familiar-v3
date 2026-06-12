@@ -6,19 +6,26 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Método não permitido. Utilize POST." });
   }
 
+  const startTime = Date.now();
   try {
     const { member, consultations, exams } = req.body;
 
     if (!member) {
+      console.warn("[Gemini API] Requisição ignorada: Dados do membro da família ausentes.");
       return res.status(400).json({ error: "Dados do membro da família não fornecidos." });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
+      console.error("[Gemini API] Falha de Configuração: GEMINI_API_KEY não encontrada no ambiente backend.");
       return res.status(500).json({
         error: "Chave de API do Gemini não configurada no servidor. Verifique as configurações no painel da Vercel.",
       });
     }
+
+    console.log(`[Gemini API] Iniciando geração de Resumo Clínico Inteligente.`);
+    console.log(`[Gemini API] Paciente: Parentesco="${member.relationship || "Não informado"}", Tipo Sanguíneo="${member.bloodType || "N/A"}", Comorbidades=${member.comorbidities ? "Sim" : "Não"}, MedicamentosAtivos=${member.medications ? "Sim" : "Não"}.`);
+    console.log(`[Gemini API] Dados de Resumo: Consultas=${(consultations || []).length} registros, Exames=${(exams || []).length} registros.`);
 
     // Initialize Gemini API Client
     const ai = new GoogleGenAI({
@@ -65,6 +72,8 @@ Instruções Clínicas para o Resumo:
    - **Plano de Conduta Sugerido**: De 2 a 3 diretrizes práticas de acompanhamento baseadas strictly em raciocínio médico (ex: novos exames de controle recomendados, frequência de reavaliação clínica, acompanhamento farmacogênico, etc.).
 4. Seja extremamente direto, conciso e use terminologia de prontuário eletrónico de alta fidelidade. O texto deve caber em uma tela mobile sem exigir rolagem excessiva. Escreva estritamente em português (do Brasil).`;
 
+    console.log(`[Gemini API] Solicitando geração de conteúdo para o modelo "gemini-3.5-flash". Tamanho estimado do prompt: ${prompt.length} caracteres.`);
+
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: prompt,
@@ -75,12 +84,17 @@ Instruções Clínicas para o Resumo:
 
     const summaryText = response.text;
     if (!summaryText) {
+      console.error("[Gemini API] Erro: O modelo respondeu com conteúdo vazio.");
       throw new Error("Resposta de resumo vazia do Gemini.");
     }
 
+    const duration = Date.now() - startTime;
+    console.log(`[Gemini API] Geração finalizada com sucesso em ${duration}ms! Tamanho do Resumo: ${summaryText.length} caracteres.`);
+
     return res.status(200).json({ summary: summaryText });
   } catch (error: any) {
-    console.error("Erro ao gerar resumo de saúde com Gemini:", error);
+    const duration = Date.now() - startTime;
+    console.error(`[Gemini API] Falha grave ao gerar resumo clínico após ${duration}ms:`, error);
     return res.status(500).json({
       error: "Falha ao gerar o resumo de saúde utilizando a Inteligência Artificial.",
       details: error.message || String(error),

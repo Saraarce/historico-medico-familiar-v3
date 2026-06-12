@@ -38,8 +38,10 @@ export default function RemindersList({ members, consultations, vaccines }: Remi
   const upcomingCount = upcomingConsultations.length + pendingVaccines.filter((v) => v.status === "pending").length;
 
   const formatDate = (dateStr: string) => {
-    if (!dateStr) return "";
-    const [year, month, day] = dateStr.split("-");
+    if (!dateStr || typeof dateStr !== "string") return "";
+    const parts = dateStr.split("-");
+    if (parts.length < 3) return dateStr;
+    const [year, month, day] = parts;
     return `${day}/${month}/${year}`;
   };
 
@@ -268,7 +270,7 @@ export default function RemindersList({ members, consultations, vaccines }: Remi
 
                       <div className="md:col-span-4 flex flex-row md:flex-col justify-between md:justify-center items-center md:items-end gap-2 mt-2.5 md:mt-0 pt-2.5 md:pt-0 border-t md:border-t-0 md:border-l border-gray-100 w-full md:w-auto">
                         {item.dueDate && (
-                          <div className={`text-xs font-bold md:mb-1 ${isOverdue ? "text-red-650" : "text-gray-700"}`}>
+                          <div className={`text-xs font-bold md:mb-1 ${isOverdue ? "text-red-600" : "text-gray-700"}`}>
                             Até {formatDate(item.dueDate)}
                           </div>
                         )}
