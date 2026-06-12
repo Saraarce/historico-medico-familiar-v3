@@ -4,7 +4,7 @@ import {
   Heart, Calendar, Syringe, Clipboard, Plus, Save, Trash2, 
   User, Check, X, Camera, Eye, AlertCircle, FileText, Info,
   Download, ExternalLink, Sparkles, Edit3, Activity, HeartPulse,
-  FileSpreadsheet
+  FileSpreadsheet, Beaker, Image
 } from "lucide-react";
 import HealthTrendsChart from "./HealthTrendsChart";
 import SpreadsheetImporter from "./SpreadsheetImporter";
@@ -177,6 +177,9 @@ export default function MemberProfile({
   const [consultStartDate, setConsultStartDate] = useState<string>("");
   const [consultEndDate, setConsultEndDate] = useState<string>("");
 
+  // Filter state for exams
+  const [examTypeFilter, setExamTypeFilter] = useState<"all" | "laboratorial" | "imagem" | "outro">("all");
+
   // Filtered lists for this member - excluding surgical procedures
   const memberConsultations = consultations
     .filter((c) => c.memberId === member.id && !(c.specialty?.toLowerCase().includes("cirurgia") || c.reason?.toLowerCase().includes("cirurgia") || (c as any).isSurgery))
@@ -210,9 +213,43 @@ export default function MemberProfile({
     return matchesSpecialty && matchesStartDate && matchesEndDate;
   });
     
+  const getExamType = (exam: Exam): "laboratorial" | "imagem" | "outro" => {
+    const text = `${exam.title || ""} ${exam.category || ""} ${exam.observations || ""}`.toLowerCase();
+    
+    const labKeywords = [
+      "laborat", "sangue", "hemograma", "urina", "fezes", "colesterol", 
+      "glicemia", "glicose", "hormon", "sorologia", "bioquim", "pcr", 
+      "plaquet", "creatinina", "urea", "trigliceri", "tireoide", "tsh", "t4", 
+      "bacterioscopia", "parasitolog", "liquido", "analise", "clonagem", "cultura",
+      "papanicolau", "parasitológico"
+    ];
+    
+    const imgKeywords = [
+      "imagem", "ultrassom", "ultra-som", "eco", "ecografia", "raio-x", "raio x", "rx", 
+      "radiografia", "tomografia", "ressonancia", "endoscopia", "colonoscopia", "mamografia", 
+      "ecocardiograma", "eletrocardiograma", "ecg", "eeg", "cintilografia", "scann", "ressonância"
+    ];
+    
+    const isLab = labKeywords.some(kw => text.includes(kw));
+    const isImg = imgKeywords.some(kw => text.includes(kw));
+    
+    if (isLab) return "laboratorial";
+    if (isImg) return "imagem";
+    return "outro";
+  };
+
   const memberExams = exams
     .filter((e) => e.memberId === member.id)
     .sort((a, b) => b.date.localeCompare(a.date));
+
+  const filteredExams = memberExams.filter((e) => {
+    if (examTypeFilter === "all") return true;
+    return getExamType(e) === examTypeFilter;
+  });
+
+  const labCount = memberExams.filter((e) => getExamType(e) === "laboratorial").length;
+  const imgCount = memberExams.filter((e) => getExamType(e) === "imagem").length;
+  const otherCount = memberExams.filter((e) => getExamType(e) === "outro").length;
 
   const memberVaccines = vaccines
     .filter((v) => v.memberId === member.id)
@@ -1507,17 +1544,86 @@ export default function MemberProfile({
               </form>
             )}
 
+            {/* Filter Exams Pills */}
+            {memberExams.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100/60 mt-1 select-none">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400 pl-2 pr-1">
+                  Filtrar Exames:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExamTypeFilter("all")}
+                  className={`py-1.5 px-3 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                    examTypeFilter === "all"
+                      ? "bg-slate-900 text-white shadow-3xs"
+                      : "text-slate-600 hover:text-slate-950 bg-white border border-slate-200/50"
+                  }`}
+                >
+                  Todos ({memberExams.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExamTypeFilter("laboratorial")}
+                  className={`py-1.5 px-3 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    examTypeFilter === "laboratorial"
+                      ? "bg-blue-600 text-white shadow-3xs"
+                      : "text-blue-600 bg-blue-50/50 hover:bg-blue-100/50 border border-blue-100/40"
+                  }`}
+                >
+                  <Beaker className="w-3.5 h-3.5" />
+                  Laboratoriais ({labCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExamTypeFilter("imagem")}
+                  className={`py-1.5 px-3 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    examTypeFilter === "imagem"
+                      ? "bg-amber-600 text-white shadow-3xs"
+                      : "text-amber-800 bg-amber-50/50 hover:bg-amber-100/50 border border-amber-100/40"
+                  }`}
+                >
+                  <Image className="w-3.5 h-3.5" />
+                  Imagem ({imgCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExamTypeFilter("outro")}
+                  className={`py-1.5 px-3 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    examTypeFilter === "outro"
+                      ? "bg-slate-600 text-white shadow-3xs"
+                      : "text-slate-600 bg-slate-100/70 hover:bg-slate-200 border border-slate-200/45"
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Outros ({otherCount})
+                </button>
+              </div>
+            )}
+
             {/* List Exams */}
             {memberExams.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">
+              <div className="text-center py-12 text-gray-400 bg-white rounded-3xl border border-gray-100">
                 <Clipboard className="w-12 h-12 mx-auto text-gray-300 mb-2" />
                 <p className="font-semibold text-gray-600">Nenhum exame cadastrado</p>
                 <p className="text-xs bg-slate-50 inline-block px-3 py-1.5 rounded-lg border border-gray-100 mt-2 text-gray-500">Cadastre para guardar laudos e imagens!</p>
               </div>
+            ) : filteredExams.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 bg-white border border-dashed border-gray-150 rounded-3xl p-6">
+                <Clipboard className="w-10 h-10 mx-auto text-gray-300 mb-2 animate-pulse" />
+                <p className="font-bold text-gray-700 text-sm">Nenhum exame deste tipo</p>
+                <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">Não há exames deste paciente auto-classificados como "{examTypeFilter === "laboratorial" ? "Laboratoriais" : examTypeFilter === "imagem" ? "Imagem" : "Outros"}" no prontuário.</p>
+                <button
+                  type="button"
+                  onClick={() => setExamTypeFilter("all")}
+                  className="mt-4 px-4 py-2 bg-slate-100 border border-slate-200 text-slate-700 font-extrabold text-xs rounded-xl hover:bg-slate-200 transition-all cursor-pointer shadow-3xs active:scale-95"
+                >
+                  Limpar Filtros de Busca
+                </button>
+              </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {memberExams.map((item) => (
-                  <div key={item.id} className="p-5 border border-gray-100 rounded-2xl bg-white hover:border-gray-200 transition-all relative flex flex-col justify-between text-left">
+                {filteredExams.map((item) => (
+                  <div key={item.id} className="p-5 border border-gray-105 rounded-2xl bg-white hover:border-gray-200 transition-all relative flex flex-col justify-between text-left">
                     <button
                       type="button"
                       onClick={() => handleStartEditExam(item)}
@@ -1528,11 +1634,31 @@ export default function MemberProfile({
                     </button>
 
                     <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-3xs font-extrabold text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-0.5 rounded-md uppercase">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                        <span className="text-[9px] font-extrabold text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-0.5 rounded-md uppercase">
                           {item.category}
                         </span>
-                        <span className="text-xs text-gray-400 font-semibold">{formatDate(item.date)}</span>
+
+                        {getExamType(item) === "laboratorial" && (
+                          <span className="text-[9px] font-extrabold text-blue-700 bg-blue-100 border border-blue-150 px-2 py-0.5 rounded-md uppercase flex items-center gap-1">
+                            <Beaker className="w-2.5 h-2.5" />
+                            Laboratorial
+                          </span>
+                        )}
+                        {getExamType(item) === "imagem" && (
+                          <span className="text-[9px] font-extrabold text-amber-700 bg-amber-100 border border-amber-150 px-2 py-0.5 rounded-md uppercase flex items-center gap-1">
+                            <Image className="w-2.5 h-2.5" />
+                            Imagem
+                          </span>
+                        )}
+                        {getExamType(item) === "outro" && (
+                          <span className="text-[9px] font-extrabold text-slate-700 bg-slate-100/80 border border-slate-200 px-2 py-0.5 rounded-md uppercase flex items-center gap-1">
+                            <FileText className="w-2.5 h-2.5" />
+                            Outro
+                          </span>
+                        )}
+
+                        <span className="text-xs text-gray-400 font-semibold ml-auto sm:ml-0">{formatDate(item.date)}</span>
                       </div>
 
                       <h4 className="font-extrabold text-gray-800 text-base">{item.title}</h4>
