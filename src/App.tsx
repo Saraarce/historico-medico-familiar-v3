@@ -495,11 +495,11 @@ export default function App() {
                     >
                       {/* Circle avatar badge */}
                       <div className={`w-10 h-10 rounded-lg ${member.avatarColor} text-white font-extrabold flex items-center justify-center shadow-3xs uppercase tracking-wide`}>
-                        {member.name.substring(0, 2)}
+                        {(member.name || member.relationship).substring(0, 2)}
                       </div>
                       
                       <div className="min-w-[80px]">
-                        <h4 className="font-bold text-gray-900 text-xs truncate leading-snug">{member.name}</h4>
+                        <h4 className="font-bold text-gray-900 text-xs truncate leading-snug">{member.name || "Sem Nome"}</h4>
                         <span className="text-3xs font-semibold text-gray-500 uppercase tracking-wider block mt-0.5">{member.relationship}</span>
                       </div>
                     </button>
