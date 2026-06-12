@@ -38,6 +38,7 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
   const [selectedDriveFileId, setSelectedDriveFileId] = useState<string>("");
   const [localFileToUploadToDrive, setLocalFileToUploadToDrive] = useState<File | null>(null);
   const [showDriveRestoreConfirm, setShowDriveRestoreConfirm] = useState(false);
+  const [showReauthButton, setShowReauthButton] = useState(false);
 
   const isMounted = React.useRef(true);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -124,6 +125,7 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
   const handleGoogleSignIn = async () => {
     if (isMounted.current) {
       setIsLoading(true);
+      setShowReauthButton(false);
       setStatusMsg({ type: "info", text: "Conectando ao Google..." });
     }
     try {
@@ -133,6 +135,7 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
         if (isMounted.current) {
           setGoogleUser(result.user);
           setGoogleToken(result.accessToken);
+          setShowReauthButton(false);
         }
         await fetchBackupFileInfo(result.accessToken);
         if (isMounted.current) {
@@ -159,6 +162,7 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
         setGoogleUser(null);
         setGoogleToken(null);
         setGoogleBackupFile(null);
+        setShowReauthButton(false);
         setStatusMsg({ type: "info", text: "Google Desconectado com sucesso." });
       }
     } catch (err) {
@@ -339,7 +343,23 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
     } catch (err: any) {
       console.error("[Google Drive Backup] Falha de exceção no método handleExportToDrive:", err);
       if (isMounted.current) {
-        setStatusMsg({ type: "error", text: "Falha na exportação para o Google Drive: " + (err.message || String(err)) });
+        const errMsg = err.message || String(err);
+        const isAuthError = errMsg.includes("has not granted the app") || 
+                            errMsg.includes("write access") || 
+                            errMsg.includes("appNotAuthorizedToFile") || 
+                            errMsg.includes("403") || 
+                            errMsg.includes("permission") || 
+                            errMsg.includes("Forbidden");
+        
+        if (isAuthError) {
+          setShowReauthButton(true);
+          setStatusMsg({
+            type: "error",
+            text: "Erro de Permissão do Google: A sua conta conectada não possui direitos de escrita para este arquivo compartilhado. O Google Drive exige autorização de acesso completo do aplicativo para editar backups compartilhados por outros membros. Clique no botão de Reautorização abaixo para resolver."
+          });
+        } else {
+          setStatusMsg({ type: "error", text: "Falha na exportação para o Google Drive: " + errMsg });
+        }
       }
     } finally {
       if (isMounted.current) {
@@ -1237,6 +1257,19 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
                 {statusMsg.type === "success" ? "Operação Concluída" : statusMsg.type === "error" ? "Falha na Execução" : "Processando..."}
               </span>
               <p className="text-3xs font-semibold leading-relaxed mt-0.5">{statusMsg.text}</p>
+              
+              {showReauthButton && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await handleGoogleSignOut();
+                    await handleGoogleSignIn();
+                  }}
+                  className="mt-2.5 py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-3xs rounded-lg shadow-3xs cursor-pointer block transition-all active:scale-98"
+                >
+                  🔄 Reautorizar Conta Google (Acesso Completo)
+                </button>
+              )}
             </div>
           </div>
         )}
