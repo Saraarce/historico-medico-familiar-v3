@@ -239,7 +239,7 @@ export default function AIExamScanner({ members, onExamSaved }: AIExamScannerPro
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || "Erro desconhecido ao escanear exame.");
+        throw new Error(data.error ? (data.details ? `${data.error} (${data.details})` : data.error) : "Erro desconhecido ao escanear exame.");
       }
 
       setScanResult({

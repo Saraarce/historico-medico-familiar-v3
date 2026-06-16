@@ -51,11 +51,8 @@ export const initAuth = (
         if (onAuthFailure) onAuthFailure();
       }
     } else {
-      console.log("[Google Auth] Ninguém logado no Firebase. Limpando sessão local...");
+      console.log("[Google Auth] Ninguém logado no Firebase. Mantendo token em localStorage para resiliência de recarregamento.");
       cachedAccessToken = null;
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("google_oauth_token");
-      }
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -78,6 +75,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     console.log("[Google Auth] Token de acesso obtido com sucesso! Persistindo no localStorage.");
     if (typeof window !== "undefined") {
       localStorage.setItem("google_oauth_token", cachedAccessToken);
+      localStorage.setItem("google_oauth_token_timestamp", String(Date.now()));
     }
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
@@ -92,12 +90,25 @@ export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;
 };
 
+export const isTokenExpired = (): boolean => {
+  if (typeof window === "undefined") return true;
+  const token = localStorage.getItem("google_oauth_token");
+  if (!token) return true;
+  const timestampStr = localStorage.getItem("google_oauth_token_timestamp");
+  if (!timestampStr) return false; // Trata como válido até um erro 401 real ocorrer
+  const timestamp = Number(timestampStr);
+  const oneHour = 3600 * 1000;
+  // Expira propositalmente 2 minutos antes para evitar condições de corrida
+  return Date.now() - timestamp > (oneHour - 2 * 60 * 1000);
+};
+
 export const logout = async () => {
   console.log("[Google Auth] Executando log-out do Firebase e removendo credenciais.");
   await auth.signOut();
   cachedAccessToken = null;
   if (typeof window !== "undefined") {
     localStorage.removeItem("google_oauth_token");
+    localStorage.removeItem("google_oauth_token_timestamp");
   }
   console.log("[Google Auth] Logout completo.");
 };

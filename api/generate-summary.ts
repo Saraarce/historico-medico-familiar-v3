@@ -66,11 +66,12 @@ ${formattedExams || "Nenhum exame clínico registrado até o momento."}
 Instruções Clínicas para o Resumo:
 1. O resumo deve ser puramente técnico, profissional, direto, no modelo de "Passagem de Caso" / "Evolução Médica" de alta eficiência. Use termos como "paciente apresenta histórico de...", "terapêutica contínua sob conformidade...", "sinais ou laudos sugerem...", etc.
 2. Livre-se de qualquer tipo de linguagem acolhedora, calorosa, cordial ou sentimental. O leitor final é um médico que necessita revisar as condições, os exames anexos e as condutas do paciente de forma pragmática e célere no celular.
-3. Estruture em Markdown limpo usando as seguintes seções estritas:
-   - **Sumário Clínico & Status Atual**: Status das comorbidades, gravidade de sintomas declarados, conformidade e dosagem do esquema terapêutico contínuo.
-   - **Achados e Tendências nos Exames/Consultas**: Avaliação objetiva dos exames e relatos de consultas recentes, destacando pontos críticos, alterações em relatórios ou tendências clínicas que merecem atenção diagnóstica.
-   - **Plano de Conduta Sugerido**: De 2 a 3 diretrizes práticas de acompanhamento baseadas strictly em raciocínio médico (ex: novos exames de controle recomendados, frequência de reavaliação clínica, acompanhamento farmacogênico, etc.).
-4. Seja extremamente direto, conciso e use terminologia de prontuário eletrónico de alta fidelidade. O texto deve caber em uma tela mobile sem exigir rolagem excessiva. Escreva estritamente em português (do Brasil).`;
+3. ATENÇÃO CRÍTICA: NÃO INVENTE NENHUMA INFORMAÇÃO, DIAGNÓSTICO OU TERAPÊUTICA. Baseie-se APENAS nos dados reais fornecidos acima. Se o paciente não possuir comorbidades, alergias, medicações, consultas ou exames nos dados reais acima, relate apenas isso de forma brevosa ou desconsidere, mas nunca deduza de forma fictícia ou inventada qualquer dado médico do paciente.
+4. Estruture em Markdown limpo usando as seguintes seções estritas (O resumo completo DEVE ter no máximo 900 caracteres, seja extremamente conciso e use siglas médicas oficiais como HAS, DM, m.c. etc.):
+   - **Sumário Clínico & Status Atual**: Diagnóstico, esquema terapêutico e status atual do paciente.
+   - **Achados nos Exames/Consultas**: Alterações críticas e pontos de atenção nos exames e consultas recentes.
+   - **Conduta Sugerida**: De 2 a 3 diretrizes práticas diretas para acompanhamento (ex: exames de controle, reavaliação).
+5. Seja extremamente direto, conciso e use terminologia de prontuário eletrónico de alta fidelidade de forma a ocupar menos de 900 caracteres no total. Escreva estritamente em português (do Brasil).`;
 
     console.log(`[Gemini API] Solicitando geração de conteúdo para o modelo "gemini-3.5-flash". Tamanho estimado do prompt: ${prompt.length} caracteres.`);
 
@@ -78,7 +79,7 @@ Instruções Clínicas para o Resumo:
       model: "gemini-3.5-flash",
       contents: prompt,
       config: {
-        systemInstruction: "Você é um copiloto médico virtual altamente técnico e preciso. Suas avaliações são formuladas estritamente sob o tom de uma discussão de caso clínico de médico para médico, focadas em brevidade, terminologia do prontuário oficial e alto pragmatismo clínico.",
+        systemInstruction: "Você é um copiloto médico virtual altamente técnico e preciso. Suas avaliações são formuladas estritamente sob o tom de uma discussão de caso clínico de médico para médico, focadas em extrema brevidade, terminologia do prontuário oficial e alto pragmatismo clínico. O total de caracteres combinados de todas as seções geradas jamais deve exceder 900 caracteres.",
       }
     });
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Download, Upload, Database, AlertCircle, Check, X, RefreshCw, Cloud, LogOut, Share2 } from "lucide-react";
 import { dbService } from "../lib/db";
+import { backupService } from "../lib/backupService";
 import { FamilyMember, Consultation, Exam, HealthVital, Vaccine } from "../types";
 import { User } from "firebase/auth";
 
@@ -86,39 +87,22 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
   const fetchBackupFileInfo = async (token: string) => {
     console.log("[Google Drive Backup] Buscando informações de arquivos de backup salvos no Drive...");
     try {
-      const q = encodeURIComponent("(name contains '.json' or mimeType = 'application/json') and trashed = false");
-      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime,size)&orderBy=modifiedTime desc&pageSize=30`;
-      console.log(`[Google Drive Backup] Chamando API Google Drive: GET ${url}`);
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      console.log(`[Google Drive Backup] Resposta recebida. Código de Status: ${res.status}`);
-      if (res.ok) {
-        const data = await res.json();
-        const files = data.files || [];
-        console.log(`[Google Drive Backup] Encontrados ${files.length} arquivos no Google Drive.`);
-        if (isMounted.current) {
-          setGoogleBackupFilesList(files);
-          if (files.length > 0) {
-            console.log(`[Google Drive Backup] Primeiro backup selecionado automaticamente: ID="${files[0].id}", Nome="${files[0].name}"`);
-            setGoogleBackupFile(files[0]);
-            setSelectedDriveFileId(files[0].id);
-          } else {
-            console.log("[Google Drive Backup] Nenhum arquivo JSON de backup encontrado no Google Drive.");
-            setGoogleBackupFile(null);
-            setSelectedDriveFileId("");
-          }
-        }
-      } else {
-        const errText = await res.text().catch(() => "N/A");
-        console.error(`[Google Drive Backup] Erro HTTP ao buscar backups de arquivos. Status: ${res.status}`, errText);
-        if (res.status === 401) {
-          console.warn("[Google Drive Backup] Token de acesso do Google inválido ou expirado (401). Desconectando sessão...");
-          handleGoogleSignOut();
+      const files = await backupService.fetchBackupList(token);
+      if (isMounted.current) {
+        setGoogleBackupFilesList(files);
+        if (files.length > 0) {
+          setGoogleBackupFile(files[0]);
+          setSelectedDriveFileId(files[0].id);
+        } else {
+          setGoogleBackupFile(null);
+          setSelectedDriveFileId("");
         }
       }
-    } catch (err) {
-      console.error("[Google Drive Backup] Erro grave/exceção física ao tentar buscar arquivos no Drive:", err);
+    } catch (err: any) {
+      console.error("[Google Drive Backup] Erro grave ao buscar arquivos no Drive:", err);
+      if (isMounted.current) {
+        setStatusMsg({ type: "error", text: "Erro ao listar backups do Drive: " + err.message });
+      }
     }
   };
 
@@ -171,9 +155,8 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
   };
 
   const handleExportToDrive = async () => {
-    console.log("[Google Drive Backup] Iniciando exportação de registros locais para o Google Drive...");
+    console.log("[Google Drive Backup] Iniciando exportação para o Google Drive...");
     if (!googleToken) {
-      console.error("[Google Drive Backup] Cancelado: Token do Google não está disponível.");
       if (isMounted.current) {
         setStatusMsg({ type: "error", text: "Por favor, conecte-se com sua conta Google primeiro." });
       }
@@ -182,8 +165,24 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
 
     if (isMounted.current) {
       setIsLoading(true);
-      setStatusMsg({ type: "info", text: "Preparando exportação para o Google Drive..." });
+      setStatusMsg({ type: "info", text: "Realizando backup para o Google Drive..." });
     }
+
+    try {
+      const resultFile = await backupService.exportToDrive(googleToken);
+      if (isMounted.current) {
+        setStatusMsg({
+          type: "success",
+          text: `Excelente! O backup "${resultFile.name}" foi salvo com sucesso no Google Drive!`
+        });
+      }
+      await fetchBackupFileInfo(googleToken);
+      return;
+    } catch (e) {
+      console.error(e);
+    }
+    // and skip remaining original code block by returning early
+    return;
 
     try {
       console.log("[Google Drive Backup] Recuperando todos os dados do IndexedDB local...");
@@ -392,108 +391,32 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
 
   const executeRestoreFromDrive = async () => {
     setShowDriveRestoreConfirm(false);
-    
     if (!googleToken) return;
 
     const targetFile = googleBackupFilesList.find(f => f.id === selectedDriveFileId) || googleBackupFile;
     if (!targetFile) return;
 
-    console.log(`[Google Drive Backup] Executando restauração do arquivo: ID="${targetFile.id}", Nome="${targetFile.name}"`);
-
     if (isMounted.current) {
       setIsLoading(true);
-      setStatusMsg({ type: "info", text: `Baixando "${targetFile.name}" do Google Drive...` });
+      setStatusMsg({ type: "info", text: `Restaurando dados do arquivo "${targetFile.name}"...` });
     }
 
     try {
-      const url = `https://www.googleapis.com/drive/v3/files/${targetFile.id}?alt=media`;
-      console.log(`[Google Drive Backup] Baixando conteúdo brutas do arquivo: GET ${url}`);
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${googleToken}` }
-      });
-      console.log(`[Google Drive Backup] Resposta do download recebida. Status HTTP: ${res.status}`);
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "N/A");
-        console.error(`[Google Drive Backup] Erro ao obter conteúdo do arquivo de backup no Drive. Status: ${res.status}`, errText);
-        throw new Error(`Erro HTTP ao ler arquivo do Google Drive: ${res.status} (${errText})`);
-      }
+      const backup = await backupService.downloadBackup(googleToken, targetFile.id);
+      const counts = await backupService.restoreBackupData(backup, importMode, targetFile.modifiedTime);
       
-      const backup: BackupData = await res.json();
-      console.log("[Google Drive Backup] Sucesso no download e parsing do JSON do backup.");
-
-      if (!backup || typeof backup !== "object") {
-        console.error("[Google Drive Backup] Validação falhou: Conteúdo de backup não é um objeto JSON válido.");
-        throw new Error("Formato de arquivo JSON baixado é inválido.");
-      }
-
-      const membersList = backup.members || [];
-      const consultationsList = backup.consultations || [];
-      const examsList = backup.exams || [];
-      const vitalsList = backup.vitals || [];
-      const vaccinesList = backup.vaccines || [];
-
-      console.log(`[Google Drive Backup] Estrutura extraída com sucesso: ` +
-                  `${membersList.length} membros, ${consultationsList.length} consultas, ` +
-                  `${examsList.length} exames, ${vitalsList.length} sinais vitais, ` +
-                  `${vaccinesList.length} vacinas.`);
-
-      if (membersList.length === 0 && consultationsList.length === 0 && examsList.length === 0 && vitalsList.length === 0 && vaccinesList.length === 0) {
-        throw new Error("O arquivo de backup no Google Drive não contém nenhum registro clínico.");
-      }
-
-      if (importMode === "replace") {
-        console.log("[Google Drive Backup] Modo de importação: Limpar e Substituir ativo. Removendo todos os dados locais antigos do IndexedDB...");
-        if (isMounted.current) {
-          setStatusMsg({ type: "info", text: "Limpando banco de dados local atual do navegador..." });
-        }
-        await dbService.clearAllData();
-        console.log("[Google Drive Backup] IndexedDB local limpo com êxito.");
-      } else {
-        console.log("[Google Drive Backup] Modo de importação: Mesclagem activa.");
-      }
-
-      if (isMounted.current) {
-        setStatusMsg({ type: "info", text: "Mesclando itens com a base local..." });
-      }
-
-      console.log("[Google Drive Backup] Escrevendo registros no IndexedDB...");
-      for (const m of membersList) {
-        await dbService.saveMember(m);
-      }
-      for (const c of consultationsList) {
-        await dbService.saveConsultation(c);
-      }
-      for (const ex of examsList) {
-        await dbService.saveExam(ex);
-      }
-      for (const vt of vitalsList) {
-        await dbService.saveVital(vt);
-      }
-      for (const vc of vaccinesList) {
-        await dbService.saveVaccine(vc);
-      }
-      console.log("[Google Drive Backup] Todos os registros gravados com sucesso no IndexedDB local.");
-
-      if (backup.exportedAt) {
-        dbService.setLocalLastUpdate(backup.exportedAt);
-      } else {
-        dbService.setLocalLastUpdate(new Date().toISOString());
-      }
-
-      // Save active drive file details for successive saves
+      // Save active drive file details so successive edits/saves lock onto it
       dbService.setActiveDriveFile(targetFile.id, targetFile.name);
 
       if (isMounted.current) {
         setStatusMsg({
           type: "success",
-          text: `Excelente! O arquivo "${targetFile.name}" foi restaurado com sucesso! Foram adicionados/sincronizados ${membersList.length} prontuário(s).`
+          text: `Excelente! O arquivo "${targetFile.name}" foi restaurado com sucesso! Carregados do prontuário com êxito.`
         });
       }
-
-      console.log("[Google Drive Backup] Atualizando estado visual global...");
       onDataImported();
     } catch (err: any) {
-      console.error("[Google Drive Backup] Exceção durante handleRestoreFromDrive:", err);
+      console.error("[Google Drive Backup] Exceção durante restauração manual:", err);
       if (isMounted.current) {
         setStatusMsg({ type: "error", text: `Falha na importação do Google Drive: ${err.message || String(err)}` });
       }

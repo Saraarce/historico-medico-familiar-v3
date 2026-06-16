@@ -25,7 +25,10 @@ export default function RemindersList({ members, consultations, vaccines }: Remi
     .filter((v) => v.status === "pending" || v.status === "overdue")
     .map((v) => {
       const member = members.find((m) => m.id === v.memberId);
-      return { ...v, member, type: "vaccine" as const };
+      // Dynamically promote status to overdue if dueDate is in the past
+      const isActuallyOverdue = v.status === "overdue" || (v.status === "pending" && v.dueDate && v.dueDate < todayStr);
+      const recalculatedStatus = isActuallyOverdue ? ("overdue" as const) : ("pending" as const);
+      return { ...v, member, status: recalculatedStatus, type: "vaccine" as const };
     })
     .sort((a, b) => {
       if (a.status === "overdue" && b.status !== "overdue") return -1;

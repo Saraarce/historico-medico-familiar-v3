@@ -1,10 +1,11 @@
 import React, { useState } from "react";
+import { jsPDF } from "jspdf";
 import { FamilyMember, Consultation, Exam, HealthVital, Vaccine } from "../types";
 import { 
   Heart, Calendar, Syringe, Clipboard, Plus, Save, Trash2, 
   User, Check, X, Camera, Eye, AlertCircle, FileText, Info,
   Download, ExternalLink, Sparkles, Edit3, Activity, HeartPulse,
-  FileSpreadsheet, Beaker, Image
+  FileSpreadsheet, Beaker, Image, Scale, Ruler, Dumbbell, Users, Hospital
 } from "lucide-react";
 import HealthTrendsChart from "./HealthTrendsChart";
 import SpreadsheetImporter from "./SpreadsheetImporter";
@@ -18,7 +19,537 @@ interface MemberProfileProps {
   onDataChanged: () => void;
 }
 
-type ProfileTab = "summary" | "consultations" | "surgeries" | "exams" | "vaccines";
+type ProfileTab = "summary" | "consultations" | "surgeries" | "hospitalizations" | "exams" | "vaccines";
+
+export interface VaccineRecommendation {
+  id: string;
+  name: string;
+  dose: string;
+  targetAgeText: string;
+  ageMinInMonths: number;
+  ageMaxInMonths: number;
+  observations: string;
+  keywords: string[];
+  group: "children" | "adults" | "gestantes" | "elderly";
+  rigidLimitDays?: number;
+}
+
+const RECOMMENDED_VACCINES: VaccineRecommendation[] = [
+  // COORTE INFANTIL / ADOLESCENTE (0 a 24 Anos)
+  {
+    id: "child_bcg",
+    name: "BCG",
+    dose: "Dose Única",
+    targetAgeText: "Ao nascer",
+    ageMinInMonths: 0,
+    ageMaxInMonths: 1,
+    observations: "Protege contra formas graves de tuberculose (como meníngea e militar) e hanseníase.",
+    keywords: ["bcg", "tuberculose"],
+    group: "children"
+  },
+  {
+    id: "child_hepb_birth",
+    name: "Hepatite B",
+    dose: "1ª Dose",
+    targetAgeText: "Ao nascer",
+    ageMinInMonths: 0,
+    ageMaxInMonths: 1,
+    observations: "Prevenção da transmissão vertical e infecção crônica por Hepatite B.",
+    keywords: ["hepatite b", "hep b", "hepb"],
+    group: "children"
+  },
+  {
+    id: "child_penta_1",
+    name: "Penta (DTP+Hib+HB)",
+    dose: "1ª Dose",
+    targetAgeText: "2 meses",
+    ageMinInMonths: 2,
+    ageMaxInMonths: 3,
+    observations: "Protege contra Difteria, Tétano, Coqueluche, Hepatite B e infecções graves por Haemophilus influenzae b.",
+    keywords: ["penta", "pentavalente", "dtp+hib+hb"],
+    group: "children"
+  },
+  {
+    id: "child_penta_2",
+    name: "Penta (DTP+Hib+HB)",
+    dose: "2ª Dose",
+    targetAgeText: "4 meses",
+    ageMinInMonths: 4,
+    ageMaxInMonths: 5,
+    observations: "Segunda dose da vacina Pentavalente.",
+    keywords: ["penta", "pentavalente", "dtp+hib+hb"],
+    group: "children"
+  },
+  {
+    id: "child_penta_3",
+    name: "Penta (DTP+Hib+HB)",
+    dose: "3ª Dose",
+    targetAgeText: "6 meses",
+    ageMinInMonths: 6,
+    ageMaxInMonths: 7,
+    observations: "Terceira dose da vacina Pentavalente.",
+    keywords: ["penta", "pentavalente", "dtp+hib+hb"],
+    group: "children"
+  },
+  {
+    id: "child_polio_1",
+    name: "Poliomielite (VIP)",
+    dose: "1ª Dose",
+    targetAgeText: "2 meses",
+    ageMinInMonths: 2,
+    ageMaxInMonths: 3,
+    observations: "Vacina Inativada Poliomielite (VIP). Protege contra a paralisia infantil.",
+    keywords: ["vip", "poliomielite", "polio", "paralisia"],
+    group: "children"
+  },
+  {
+    id: "child_polio_2",
+    name: "Poliomielite (VIP)",
+    dose: "2ª Dose",
+    targetAgeText: "4 meses",
+    ageMinInMonths: 4,
+    ageMaxInMonths: 5,
+    observations: "Segunda dose contra a paralisia infantil (VIP).",
+    keywords: ["vip", "poliomielite", "polio", "paralisia"],
+    group: "children"
+  },
+  {
+    id: "child_polio_3",
+    name: "Poliomielite (VIP)",
+    dose: "3ª Dose",
+    targetAgeText: "6 meses",
+    ageMinInMonths: 6,
+    ageMaxInMonths: 7,
+    observations: "Terceira dose contra a paralisia infantil (VIP).",
+    keywords: ["vip", "poliomielite", "polio", "paralisia"],
+    group: "children"
+  },
+  {
+    id: "child_polio_ref",
+    name: "Poliomielite (VIP)",
+    dose: "Reforço",
+    targetAgeText: "15 meses",
+    ageMinInMonths: 15,
+    ageMaxInMonths: 18,
+    observations: "Dose de reforço contra paralisia infantil (VIP).",
+    keywords: ["vip", "poliomielite", "polio", "paralisia", "reforço polio", "reforco polio"],
+    group: "children"
+  },
+  {
+    id: "child_pneumo_1",
+    name: "Pneumocócica 10-V",
+    dose: "1ª Dose",
+    targetAgeText: "3 meses",
+    ageMinInMonths: 3,
+    ageMaxInMonths: 4,
+    observations: "Protege contra pneumonia, otite média aguda, sinusite e meningites causadas pelo pneumococo.",
+    keywords: ["pneumococica", "pneumo", "pneumo 10", "10-v"],
+    group: "children"
+  },
+  {
+    id: "child_pneumo_2",
+    name: "Pneumocócica 10-V",
+    dose: "2ª Dose",
+    targetAgeText: "4 meses",
+    ageMinInMonths: 4,
+    ageMaxInMonths: 5,
+    observations: "Segunda dose contra infecções pneumocócicas.",
+    keywords: ["pneumococica", "pneumo", "pneumo 10", "10-v"],
+    group: "children"
+  },
+  {
+    id: "child_pneumo_ref",
+    name: "Pneumocócica 10-V",
+    dose: "Reforço",
+    targetAgeText: "12 meses",
+    ageMinInMonths: 12,
+    ageMaxInMonths: 14,
+    observations: "Reforço contra infecções pneumocócicas aos 12 meses.",
+    keywords: ["pneumococica", "pneumo", "pneumo 10", "10-v"],
+    group: "children"
+  },
+  {
+    id: "child_rotavirus_1",
+    name: "Rotavírus Humano",
+    dose: "1ª Dose",
+    targetAgeText: "3 meses",
+    ageMinInMonths: 3,
+    ageMaxInMonths: 11,
+    rigidLimitDays: 364,
+    observations: "Protege contra diarreia severa e desidratação por rotavírus. Limites rígidos: D1 deve ser tomada até os 11 meses e 29 dias.",
+    keywords: ["rotavirus", "rota virus", "rotavírus"],
+    group: "children"
+  },
+  {
+    id: "child_rotavirus_2",
+    name: "Rotavírus Humano",
+    dose: "2ª Dose",
+    targetAgeText: "4 meses",
+    ageMinInMonths: 4,
+    ageMaxInMonths: 23,
+    rigidLimitDays: 729,
+    observations: "Segunda dose contra gastroenterite. Limites rígidos: D2 deve ser tomada até os 23 meses e 29 dias.",
+    keywords: ["rotavirus", "rota virus", "rotavírus"],
+    group: "children"
+  },
+  {
+    id: "child_meningoc_1",
+    name: "Meningocócica C",
+    dose: "1ª Dose",
+    targetAgeText: "3 meses",
+    ageMinInMonths: 3,
+    ageMaxInMonths: 4,
+    observations: "Previne da doença meningocócica invasiva causada pelo Neisseria meningitidis do sorogrupo C.",
+    keywords: ["meningococica c", "meningo c", "meningocócica c"],
+    group: "children"
+  },
+  {
+    id: "child_meningoc_2",
+    name: "Meningocócica C",
+    dose: "2ª Dose",
+    targetAgeText: "5 meses",
+    ageMinInMonths: 5,
+    ageMaxInMonths: 6,
+    observations: "Segunda dose da imunização contra Meningite C.",
+    keywords: ["meningococica c", "meningo c", "meningocócica c"],
+    group: "children"
+  },
+  {
+    id: "child_meningoacwy_12",
+    name: "Meningocócica ACWY",
+    dose: "1ª Dose",
+    targetAgeText: "12 meses",
+    ageMinInMonths: 12,
+    ageMaxInMonths: 15,
+    observations: "Protege contra meningites causadas pelos quatro sorogrupos da bactéria meningococo (A, C, W e Y).",
+    keywords: ["meningococica acwy", "meningo acwy", "meningocócica acwy"],
+    group: "children"
+  },
+  {
+    id: "child_triplice_1",
+    name: "Tríplice Viral (SCR)",
+    dose: "1ª Dose",
+    targetAgeText: "12 meses",
+    ageMinInMonths: 12,
+    ageMaxInMonths: 14,
+    observations: "Protege contra Sarampo, Caxumba e Rubéola.",
+    keywords: ["triplice viral", "scr", "sarampo caxumba rubeola", "tríplice viral"],
+    group: "children"
+  },
+  {
+    id: "child_triplice_2",
+    name: "Tríplice Viral (SCR)",
+    dose: "2ª Dose",
+    targetAgeText: "15 meses",
+    ageMinInMonths: 15,
+    ageMaxInMonths: 18,
+    observations: "Segunda dose para consolidar imunidade duradoura contra Sarampo, Caxumba e Rubéola.",
+    keywords: ["triplice viral", "scr", "sarampo caxumba rubeola", "tríplice viral"],
+    group: "children"
+  },
+  {
+    id: "child_dtp_ref1",
+    name: "DTP",
+    dose: "1º Reforço",
+    targetAgeText: "15 meses",
+    ageMinInMonths: 15,
+    ageMaxInMonths: 18,
+    observations: "Reforço contra Difteria, Tétano e Coqueluche aos 15 meses.",
+    keywords: ["dtp", "triplice bacteriana", "tríplice bacteriana"],
+    group: "children"
+  },
+  {
+    id: "child_dtp_ref2",
+    name: "DTP",
+    dose: "2º Reforço",
+    targetAgeText: "4 anos",
+    ageMinInMonths: 48,
+    ageMaxInMonths: 60,
+    observations: "Segundo e último reforço padrão na infância contra Difteria, Tétano e Coqueluche aos 4 anos.",
+    keywords: ["dtp", "triplice bacteriana", "tríplice bacteriana"],
+    group: "children"
+  },
+  {
+    id: "child_hepa",
+    name: "Hepatite A",
+    dose: "Dose Única",
+    targetAgeText: "15 meses",
+    ageMinInMonths: 15,
+    ageMaxInMonths: 18,
+    observations: "Protege contra inflamações graves do fígado provocadas pelo vírus da Hepatite A.",
+    keywords: ["hepatite a", "hep a", "hepa"],
+    group: "children"
+  },
+  {
+    id: "child_varicela_1",
+    name: "Varicela",
+    dose: "1ª Dose",
+    targetAgeText: "15 meses",
+    ageMinInMonths: 15,
+    ageMaxInMonths: 18,
+    observations: "Proteção contra catapora avançada ou severa.",
+    keywords: ["varicela", "catapora"],
+    group: "children"
+  },
+  {
+    id: "child_varicela_2",
+    name: "Varicela",
+    dose: "2ª Dose",
+    targetAgeText: "4 anos",
+    ageMinInMonths: 48,
+    ageMaxInMonths: 60,
+    observations: "Consolidação da proteção contra catapora (Varicela).",
+    keywords: ["varicela", "catapora"],
+    group: "children"
+  },
+  {
+    id: "child_amarela_1",
+    name: "Febre Amarela",
+    dose: "1ª Dose",
+    targetAgeText: "9 meses",
+    ageMinInMonths: 9,
+    ageMaxInMonths: 11,
+    observations: "Prevenção universal da Febre Amarela. Pode ser administrada preventivamente de 6 a 8 meses em áreas de alto risco circulatório.",
+    keywords: ["febre amarela", "amarela"],
+    group: "children"
+  },
+  {
+    id: "child_amarela_ref",
+    name: "Febre Amarela",
+    dose: "Reforço",
+    targetAgeText: "4 anos",
+    ageMinInMonths: 48,
+    ageMaxInMonths: 60,
+    observations: "Reforço contra febre amarela aos 4 anos.",
+    keywords: ["febre amarela", "amarela"],
+    group: "children"
+  },
+  {
+    id: "child_influenza",
+    name: "Influenza Trivalente",
+    dose: "Dose Anual",
+    targetAgeText: "Anual (6 meses a menores de 6 anos)",
+    ageMinInMonths: 6,
+    ageMaxInMonths: 71,
+    observations: "Protege contra o vírus sazonal da gripe e complicações. Primeira aplicação exige 2 doses com diferença de 30 dias.",
+    keywords: ["influenza", "gripe", "gripe trivalente"],
+    group: "children"
+  },
+  {
+    id: "child_covid",
+    name: "Covid-19",
+    dose: "Dose do Esquema",
+    targetAgeText: "Iniciando aos 6 meses",
+    ageMinInMonths: 6,
+    ageMaxInMonths: 216,
+    observations: "Esquema inicial de 2 doses (Spikevax / Moderna) ou de 3 doses (Comirnaty / Pfizer) iniciando aos 6 meses contra complicações virais.",
+    keywords: ["covid", "covid-19", "coronavirus"],
+    group: "children"
+  },
+  {
+    id: "child_hpv",
+    name: "HPV4",
+    dose: "Dose Única",
+    targetAgeText: "9 aos 14 anos",
+    ageMinInMonths: 108,
+    ageMaxInMonths: 180,
+    observations: "Dose única dos 9 aos 14 anos contra o Papilomavírus Humano. Disponível como resgate em dose única até 19 anos se sem histórico vacinal.",
+    keywords: ["hpv", "hpv4", "papilomavir", "papilomavírus"],
+    group: "children"
+  },
+  {
+    id: "child_dengue",
+    name: "Dengue Tetravalente",
+    dose: "Esquema de 2 doses",
+    targetAgeText: "10 aos 14 anos",
+    ageMinInMonths: 120,
+    ageMaxInMonths: 180,
+    observations: "Esquema de duas doses contra a Dengue. Se teve diagnóstico recente de dengue, recomenda-se adiar por 6 meses o começo do esquema.",
+    keywords: ["dengue", "qdenga"],
+    group: "children"
+  },
+  {
+    id: "child_meningoacwy_teen",
+    name: "Meningocócica ACWY",
+    dose: "Reforço / Dose Única",
+    targetAgeText: "11 aos 14 anos",
+    ageMinInMonths: 132,
+    ageMaxInMonths: 180,
+    observations: "Disponibilizada no SUS para adolescentes de 11 a 14 anos para garantir proteção circulante contra meningococo.",
+    keywords: ["meningococica acwy", "meningo acwy", "meningocócica acwy"],
+    group: "children"
+  },
+  {
+    id: "child_triplice_teen",
+    name: "Tríplice Viral (SCR)",
+    dose: "Resgate / Esquema",
+    targetAgeText: "10 aos 24 anos",
+    ageMinInMonths: 120,
+    ageMaxInMonths: 300,
+    observations: "Garantir 2 doses completas na vida adulta de 10 a 24 anos caso o histórico de infância esteja incompleto.",
+    keywords: ["triplice viral", "scr", "sarampo caxumba rubeola", "tríplice viral"],
+    group: "children"
+  },
+
+  // ADULTOS E IDOSOS (25 Anos ou Mais)
+  {
+    id: "adult_hepb",
+    name: "Hepatite B",
+    dose: "Esquema (3 Doses)",
+    targetAgeText: "A partir de 25 anos",
+    ageMinInMonths: 300,
+    ageMaxInMonths: 1500,
+    observations: "Esquema corretivo ou inicial de 3 doses para todas as idades conforme histórico vacinal.",
+    keywords: ["hepatite b", "hep b", "hepb"],
+    group: "adults"
+  },
+  {
+    id: "adult_dt",
+    name: "dT (Difteria e Tétano)",
+    dose: "Reforço a cada 10 anos",
+    targetAgeText: "A partir de 25 anos",
+    ageMinInMonths: 300,
+    ageMaxInMonths: 1500,
+    observations: "Três doses básicas ou reforço obrigatório a cada 10 anos (ou 5 anos em caso de ferimentos cirúrgicos de risco).",
+    keywords: ["dt (", "dupla adulto", "difteria e tetano", "difteria tétano", "dupla tipo adulto"],
+    group: "adults"
+  },
+  {
+    id: "adult_triplice_young",
+    name: "Tríplice Viral (SCR)",
+    dose: "Esquema (Até 2 Doses)",
+    targetAgeText: "25 a 29 anos",
+    ageMinInMonths: 300,
+    ageMaxInMonths: 359,
+    observations: "Adultos de 25 a 29 anos: Certificar totalização de até 2 doses no arquivo histórico do SUS.",
+    keywords: ["triplice viral", "scr", "sarampo caxumba rubeola", "tríplice viral"],
+    group: "adults"
+  },
+  {
+    id: "adult_triplice_mid",
+    name: "Tríplice Viral (SCR)",
+    dose: "1 Dose corretiva",
+    targetAgeText: "30 a 59 anos",
+    ageMinInMonths: 360,
+    ageMaxInMonths: 719,
+    observations: "De 30 a 59 anos: Exige-se o registro de pelo menos uma dose de SCR no histórico.",
+    keywords: ["triplice viral", "scr", "sarampo caxumba rubeola", "tríplice viral"],
+    group: "adults"
+  },
+  {
+    id: "adult_amarela",
+    name: "Febre Amarela",
+    dose: "Dose Única",
+    targetAgeText: "Adultos (Até 59 anos)",
+    ageMinInMonths: 300,
+    ageMaxInMonths: 719,
+    observations: "Dose única para adultos até 59 anos se nunca tomou. Para idosos 60+, sob avaliação estrita de risco-benefício.",
+    keywords: ["febre amarela", "amarela"],
+    group: "adults"
+  },
+  {
+    id: "elderly_influenza",
+    name: "Influenza Trivalente",
+    dose: "Dose Anual",
+    targetAgeText: "Anual (60 anos ou mais)",
+    ageMinInMonths: 720,
+    ageMaxInMonths: 1500,
+    observations: "Dose anual sazonal do vírus Influenza extremamente recomendada para a melhor idade (60+).",
+    keywords: ["influenza", "gripe", "gripe trivalente"],
+    group: "elderly"
+  },
+  {
+    id: "elderly_covid",
+    name: "Covid-19 (Reforço)",
+    dose: "Dose Semestral",
+    targetAgeText: "Semestral (60 anos ou mais)",
+    ageMinInMonths: 720,
+    ageMaxInMonths: 1500,
+    observations: "Dose de reforço semestral recomendada e incentivada para idosos devido ao perfil imunitário e variantes.",
+    keywords: ["covid", "covid-19", "coronavirus"],
+    group: "elderly"
+  },
+
+  // CATCH-ALL ADICIONAL GESTANTE (Ativa-se caso toggle isPregnant esteja verdadeiro)
+  {
+    id: "gestante_dtpa",
+    name: "dTpa (Tríplice Bacteriana Acelular)",
+    dose: "1 Dose a cada gestação",
+    targetAgeText: "A partir de 20 semanas",
+    ageMinInMonths: 144, // 12+ years
+    ageMaxInMonths: 1500,
+    observations: "Aplicada a partir da 20ª semana gestacional para transferir anticorpos da coqueluche e do tétano para o recém-nascido. Obrigatório em cada gestação.",
+    keywords: ["dtpa", "dtp acelerada", "triple bacteriana acelerada", "triplice bacteriana acelular", "tríplice bacteriana acelular"],
+    group: "gestantes"
+  },
+  {
+    id: "gestante_vvsr",
+    name: "Vírus Sincicial Respiratório (VVSR)",
+    dose: "1 Dose a cada gestação",
+    targetAgeText: "Entre 28 e 36 semanas",
+    ageMinInMonths: 144,
+    ageMaxInMonths: 1500,
+    observations: "Aplicada entre a 28ª e 36ª semana. Transfere anticorpos para proteger o bebê nos primeiros 6 meses de vida contra bronquiolites e pneumonia pelo VSR.",
+    keywords: ["virus sincicial", "vvsr", "sincicial", "vírus sincicial"],
+    group: "gestantes"
+  },
+  {
+    id: "gestante_influenza",
+    name: "Influenza Trivalente (Gestante)",
+    dose: "1 Dose por gestação",
+    targetAgeText: "Temporada Gestacional",
+    ageMinInMonths: 144,
+    ageMaxInMonths: 1500,
+    observations: "Garante imunidade para a gestante e anticorpos iniciais para o feto contra o vírus sazonal da gripe.",
+    keywords: ["influenza", "gripe", "gripe trivalente"],
+    group: "gestantes"
+  },
+  {
+    id: "gestante_covid",
+    name: "Covid-19 (Gestante)",
+    dose: "1 Dose a cada gestação",
+    targetAgeText: "Na gestação",
+    ageMinInMonths: 144,
+    ageMaxInMonths: 1500,
+    observations: "Dose de reforço adaptativa para maior segurança e imunidade materna e neonatal.",
+    keywords: ["covid", "covid-19", "coronavirus"],
+    group: "gestantes"
+  }
+];
+
+// Helper to convert varied date formats (YYYY-MM-DD or DD/MM/YYYY) into numerical timestamp for reliable sorting
+function parseDateToTime(dateStr: string): number {
+  if (!dateStr || typeof dateStr !== "string") return 0;
+  
+  const trimmed = dateStr.trim();
+  
+  // Try format YYYY-MM-DD
+  if (trimmed.includes("-")) {
+    const parts = trimmed.split("-");
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) return d.getTime();
+    }
+  }
+  
+  // Try format DD/MM/YYYY
+  if (trimmed.includes("/")) {
+    const parts = trimmed.split("/");
+    if (parts.length === 3) {
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const year = parseInt(parts[2], 10);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) return d.getTime();
+    }
+  }
+  
+  const parsed = Date.parse(trimmed);
+  return isNaN(parsed) ? 0 : parsed;
+}
 
 export default function MemberProfile({ 
   member, consultations, exams, vitals, vaccines, onDataChanged 
@@ -43,13 +574,17 @@ export default function MemberProfile({
   const [editExamForm, setEditExamForm] = useState({ date: "", title: "", category: "", facility: "", doctor: "", observations: "" });
   const [editingVaccine, setEditingVaccine] = useState<Vaccine | null>(null);
   const [editVaccineForm, setEditVaccineForm] = useState({ name: "", dose: "", status: "applied", dueDate: "", appliedDate: "", batch: "" });
+  const [showAddHospitalization, setShowAddHospitalization] = useState(false);
+  const [editingHospitalization, setEditingHospitalization] = useState<Consultation | null>(null);
+  const [editHospitalForm, setEditHospitalForm] = useState({ date: "", dischargeDate: "", facility: "", reason: "", diagnosis: "", doctor: "", prescription: "", notes: "" });
 
   // Form Fields
   const [vitalForm, setVitalForm] = useState({ date: new Date().toISOString().split("T")[0], weight: "", sys: "", dia: "", glucose: "", hr: "", height: "" });
   const [consultForm, setConsultForm] = useState({ date: new Date().toISOString().split("T")[0], specialty: "", doctor: "", facility: "", reason: "", prescription: "", notes: "" });
   const [surgeryForm, setSurgeryForm] = useState({ date: new Date().toISOString().split("T")[0], title: "", specialty: "", doctor: "", facility: "", prescription: "", notes: "" });
   const [examForm, setExamForm] = useState({ date: new Date().toISOString().split("T")[0], title: "", category: "", facility: "", doctor: "", observations: "" });
-  const [profileForm, setProfileForm] = useState({ name: "", relationship: "", birthDate: "", bloodType: "", allergies: "", comorbidities: "", medications: "" });
+  const [hospitalForm, setHospitalForm] = useState({ date: new Date().toISOString().split("T")[0], dischargeDate: "", facility: "", reason: "", diagnosis: "", doctor: "", prescription: "", notes: "" });
+  const [profileForm, setProfileForm] = useState({ name: "", relationship: "", birthDate: "", bloodType: "", allergies: "", comorbidities: "", medications: "", physicalActivity: "", familyHistory: "" });
   const [examPhotoBase64, setExamPhotoBase64] = useState<string | null>(null);
   const [vaccineForm, setVaccineForm] = useState({ name: "", dose: "", dueDate: "", appliedDate: "", isApplied: false, batch: "" });
 
@@ -95,7 +630,7 @@ export default function MemberProfile({
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || "Falha ao gerar o resumo.");
+        throw new Error(data.error ? (data.details ? `${data.error} (${data.details})` : data.error) : "Falha ao gerar o resumo.");
       }
 
       setAiSummary(data.summary);
@@ -109,6 +644,240 @@ export default function MemberProfile({
       setErrorText(err.message || "Erro ao conectar com a Inteligência Artificial.");
     } finally {
       setGenerateLoading(false);
+    }
+  };
+
+  const handleGeneratePDF = () => {
+    try {
+      const doc = new jsPDF();
+      
+      // Document Metadata
+      doc.setProperties({
+        title: `Resumo Clínico - ${member.name}`,
+        subject: "Dossiê de Saúde para Consulta Médica",
+        author: "Prontuário Familiar Inteligente",
+        creator: "Prontuário Familiar"
+      });
+
+      // Header Banner
+      doc.setFillColor(37, 99, 235);
+      doc.rect(0, 0, 210, 40, "F");
+
+      // Title on Banner
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(22);
+      doc.setTextColor(255, 255, 255);
+      doc.text("Dossiê Resumo de Saúde", 15, 18);
+      
+      doc.setFont("Helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(219, 234, 254);
+      doc.text(`Prontuário gerado para apresentação em consulta médica | Data: ${new Date().toLocaleDateString("pt-BR")}`, 15, 27);
+
+      // Section 1: Ficha do Paciente
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(30, 41, 59);
+      doc.text("1. Identificação do Paciente", 15, 52);
+
+      doc.setDrawColor(226, 232, 240);
+      doc.line(15, 55, 195, 55);
+
+      doc.setFont("Helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(71, 85, 105);
+
+      // Quick Grid Information
+      doc.setFont("Helvetica", "bold"); doc.text("Nome Completo:", 15, 63);
+      doc.setFont("Helvetica", "normal"); doc.text(member.name || "Não informado", 50, 63);
+
+      doc.setFont("Helvetica", "bold"); doc.text("Parentesco:", 15, 69);
+      doc.setFont("Helvetica", "normal"); doc.text(member.relationship || "Não informado", 50, 69);
+
+      doc.setFont("Helvetica", "bold"); doc.text("Nascimento:", 15, 75);
+      doc.setFont("Helvetica", "normal"); 
+      const bDateText = member.birthDate ? `${formatDate(member.birthDate)} (${getAge(member.birthDate)} anos)` : "Não informado";
+      doc.text(bDateText, 50, 75);
+
+      doc.setFont("Helvetica", "bold"); doc.text("Tipo Sanguíneo:", 15, 81);
+      doc.setFont("Helvetica", "normal"); 
+      doc.setTextColor(220, 38, 38);
+      doc.text(member.bloodType || "Não informado", 50, 81);
+      doc.setTextColor(71, 85, 105);
+
+      // Latest weights and heights
+      const latestWeightObj = memberVitals.find(v => v.weight !== undefined && v.weight !== null && Number(v.weight) > 0);
+      const latestWeight = latestWeightObj ? `${latestWeightObj.weight} kg (${formatDate(latestWeightObj.date)})` : "Não registrado";
+
+      const latestHeightObj = memberVitals.find(v => v.height !== undefined && v.height !== null && Number(v.height) > 0);
+      const latestHeight = latestHeightObj ? `${latestHeightObj.height} cm (${formatDate(latestHeightObj.date)})` : "Não registrado";
+
+      doc.setFont("Helvetica", "bold"); doc.text("Peso Recente:", 15, 87);
+      doc.setFont("Helvetica", "normal"); doc.text(latestWeight, 50, 87);
+
+      doc.setFont("Helvetica", "bold"); doc.text("Altura Recente:", 15, 93);
+      doc.setFont("Helvetica", "normal"); doc.text(latestHeight, 50, 93);
+
+      let posY = 105;
+
+      const checkPageOverflow = (neededHeight: number) => {
+        if (posY + neededHeight > 275) {
+          doc.addPage();
+          posY = 20;
+          return true;
+        }
+        return false;
+      };
+
+      const drawSectionHeader = (title: string) => {
+        checkPageOverflow(25);
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(14);
+        doc.setTextColor(30, 41, 59);
+        doc.text(title, 15, posY);
+        posY += 3;
+        doc.setDrawColor(226, 232, 240);
+        doc.line(15, posY, 195, posY);
+        posY += 8;
+      };
+
+      // Section 2: Ficha Médica Básica
+      drawSectionHeader("2. Condição de Saúde Básica");
+      doc.setFontSize(9);
+
+      // Quick side-by-side or concise lines for clinical status
+      doc.setFont("Helvetica", "bold");
+      doc.setTextColor(30, 41, 59);
+      doc.text("Alergias Documentadas:", 15, posY);
+      doc.setFont("Helvetica", "normal");
+      doc.setTextColor(71, 85, 105);
+      const allergiesText = member.allergies || "Nenhuma registrada.";
+      const splittedAllergies = doc.splitTextToSize(allergiesText, 135);
+      doc.text(splittedAllergies, 60, posY);
+      posY += (splittedAllergies.length * 4.5);
+
+      checkPageOverflow(10);
+      doc.setFont("Helvetica", "bold");
+      doc.setTextColor(30, 41, 59);
+      doc.text("Doenças & Comorbidades:", 15, posY);
+      doc.setFont("Helvetica", "normal");
+      doc.setTextColor(71, 85, 105);
+      const comorbiditiesText = member.comorbidities || "Nenhuma registrada.";
+      const splittedComorb = doc.splitTextToSize(comorbiditiesText, 135);
+      doc.text(splittedComorb, 60, posY);
+      posY += (splittedComorb.length * 4.5);
+
+      checkPageOverflow(10);
+      doc.setFont("Helvetica", "bold");
+      doc.setTextColor(30, 41, 59);
+      doc.text("Medicações Contínuas:", 15, posY);
+      doc.setFont("Helvetica", "normal");
+      doc.setTextColor(71, 85, 105);
+      const medicationsText = member.medications || "Nenhuma registrada.";
+      const splittedMed = doc.splitTextToSize(medicationsText, 135);
+      doc.text(splittedMed, 60, posY);
+      posY += (splittedMed.length * 4.5) + 6;
+
+      // Section 3: Consultas Clínicas
+      drawSectionHeader("3. Últimas 5 Consultas Clínicas");
+      doc.setFontSize(9);
+
+      if (memberConsultations.length === 0) {
+        doc.setFont("Helvetica", "italic");
+        doc.setTextColor(148, 163, 184);
+        doc.text("Nenhuma consulta registrada até o momento.", 15, posY);
+        posY += 8;
+      } else {
+        doc.setTextColor(71, 85, 105);
+        const last5Consultations = memberConsultations.slice(0, 5);
+        for (const c of last5Consultations) {
+          let prescriptionLines: string[] = [];
+          if (c.prescription) {
+            prescriptionLines = doc.splitTextToSize(`Conduta/Prescrição: ${c.prescription}`, 172);
+          }
+          const itemHeight = 4.5 + 4 + (prescriptionLines.length > 0 ? (prescriptionLines.length * 4) : 0) + 2;
+          checkPageOverflow(itemHeight);
+          
+          doc.setFont("Helvetica", "bold");
+          doc.setTextColor(30, 41, 59);
+          doc.text(`• [${formatDate(c.date)}] - ${c.specialty} (Dr. ${c.doctor})`, 15, posY);
+          posY += 4;
+          
+          doc.setFont("Helvetica", "normal");
+          doc.setTextColor(71, 85, 105);
+          doc.setFontSize(8);
+          doc.text(`Local: ${c.facility} | Motivo: ${c.reason || "Rotina"}`, 19, posY);
+          posY += 4;
+
+          if (c.prescription && prescriptionLines.length > 0) {
+            doc.setFont("Helvetica", "italic");
+            doc.setTextColor(100, 116, 139);
+            doc.text(prescriptionLines, 19, posY);
+            posY += (prescriptionLines.length * 4);
+          }
+          doc.setFontSize(9);
+          posY += 1.5;
+        }
+        posY += 4;
+      }
+
+      // Section 4: Exames Clínicos e Laboratoriais
+      drawSectionHeader("4. Últimos 5 Exames Realizados");
+      doc.setFontSize(9);
+
+      if (memberExams.length === 0) {
+        doc.setFont("Helvetica", "italic");
+        doc.setTextColor(148, 163, 184);
+        doc.text("Nenhum exame clínico ou de laboratório registrado.", 15, posY);
+        posY += 8;
+      } else {
+        doc.setTextColor(71, 85, 105);
+        const last5Exams = memberExams.slice(0, 5);
+        for (const e of last5Exams) {
+          let obsLines: string[] = [];
+          if (e.observations) {
+            obsLines = doc.splitTextToSize(`Resultado/Obs: ${e.observations}`, 172);
+          }
+          const itemHeight = 4.5 + 4 + (obsLines.length > 0 ? (obsLines.length * 4) : 0) + 2;
+          checkPageOverflow(itemHeight);
+          
+          doc.setFont("Helvetica", "bold");
+          doc.setTextColor(30, 41, 59);
+          doc.text(`• [${formatDate(e.date)}] - ${e.title} (${e.category || "Exame"})`, 15, posY);
+          posY += 4;
+          
+          doc.setFont("Helvetica", "normal");
+          doc.setTextColor(71, 85, 105);
+          doc.setFontSize(8);
+          doc.text(`Unidade: ${e.facility} | Solicitante: ${e.doctor || "Não informado"}`, 19, posY);
+          posY += 4;
+
+          if (e.observations && obsLines.length > 0) {
+            doc.setFont("Helvetica", "italic");
+            doc.setTextColor(100, 116, 139);
+            doc.text(obsLines, 19, posY);
+            posY += (obsLines.length * 4);
+          }
+          doc.setFontSize(9);
+          posY += 1.5;
+        }
+      }
+
+      // Footer
+      checkPageOverflow(30);
+      posY += 10;
+      doc.setDrawColor(203, 213, 225);
+      doc.line(15, posY, 195, posY);
+      posY += 6;
+      doc.setFont("Helvetica", "italic");
+      doc.setFontSize(8);
+      doc.text("Dossiê gerado pelo Prontuário Familiar Digital. Apresente este relatório impresso ou portátil ao seu médico assistente.", 15, posY);
+
+      const filename = `Resumo_Saude_${member.name.replace(/\s+/g, "_")}.pdf`;
+      doc.save(filename);
+    } catch (err: any) {
+      console.error("Erro ao gerar PDF:", err);
+      setErrorText(`Falha ao gerar o resumo em formato PDF: ${err.message || String(err)}`);
     }
   };
 
@@ -180,15 +949,207 @@ export default function MemberProfile({
   // Filter state for exams
   const [examTypeFilter, setExamTypeFilter] = useState<"all" | "laboratorial" | "imagem" | "outro">("all");
 
-  // Filtered lists for this member - excluding surgical procedures
-  const memberConsultations = consultations
-    .filter((c) => c.memberId === member.id && !(c.specialty?.toLowerCase().includes("cirurgia") || c.reason?.toLowerCase().includes("cirurgia") || (c as any).isSurgery))
-    .sort((a, b) => b.date.localeCompare(a.date));
+  // Vaccine Calendar States & Helpers
+  const [vaccineView, setVaccineView] = useState<"calendar" | "booklet">("calendar");
+  // Helper to determine if female
+  const isFemaleMember = (m: typeof member) => {
+    if (m.gender) {
+      return m.gender === "F";
+    }
+    const rel = (m.relationship || "").toLowerCase();
+    const femaleTerms = ["mãe", "mae", "filha", "avó", "avo", "tia", "irmã", "irma", "esposa", "mulher", "prima", "madrasta", "enteada", "gestante", "grávida", "gravida"];
+    return femaleTerms.some(term => rel.includes(term));
+  };
 
-  // Surgical procedures list
+  const [isPregnantOverride, setIsPregnantOverride] = useState<boolean>(() => {
+    // Check if eligible
+    const today = new Date();
+    const birth = new Date(member.birthDate);
+    let years = 0;
+    if (member.birthDate && !isNaN(birth.getTime())) {
+      years = today.getFullYear() - birth.getFullYear();
+      const m = today.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+        years--;
+      }
+    }
+    const isEligible = isFemaleMember(member) && years >= 12;
+    if (!isEligible) return false;
+
+    const rel = (member.relationship || "").toLowerCase();
+    return rel.includes("gestante") || rel.includes("grávida") || rel.includes("gravida");
+  });
+  const [selectedCalendarFilter, setSelectedCalendarFilter] = useState<"all" | "overdue" | "pending" | "applied" | "future" | "expired">("all");
+
+  // Sync pregnancy toggle when member changes
+  React.useEffect(() => {
+    const today = new Date();
+    const birth = new Date(member.birthDate);
+    let years = 0;
+    if (member.birthDate && !isNaN(birth.getTime())) {
+      years = today.getFullYear() - birth.getFullYear();
+      const m = today.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+        years--;
+      }
+    }
+    const isEligible = isFemaleMember(member) && years >= 12;
+    if (!isEligible) {
+      setIsPregnantOverride(false);
+      return;
+    }
+
+    const rel = (member.relationship || "").toLowerCase();
+    setIsPregnantOverride(rel.includes("gestante") || rel.includes("grávida") || rel.includes("gravida"));
+  }, [member.id, member.relationship, member.birthDate, member.gender]);
+
+  // Helper to calculate total days, months, and years precisely
+  const getPreciseAge = (birthDate: string) => {
+    if (!birthDate) return null;
+    const today = new Date();
+    const birth = new Date(birthDate);
+    if (isNaN(birth.getTime())) return null;
+
+    const diffTime = today.getTime() - birth.getTime();
+    const totalDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+
+    let years = today.getFullYear() - birth.getFullYear();
+    let months = today.getMonth() - birth.getMonth();
+    
+    if (months < 0 || (months === 0 && today.getDate() < birth.getDate())) {
+      years--;
+      months += 12;
+    }
+    
+    if (today.getDate() < birth.getDate()) {
+      months--;
+    }
+    if (months < 0) {
+      months += 12;
+    }
+
+    const totalMonths = years * 12 + months;
+
+    return { years, months, totalMonths, totalDays };
+  };
+
+  // Helper to match catalog recommendation with logged history
+  const getRecommendationStatus = (reco: typeof RECOMMENDED_VACCINES[0]) => {
+    // 1. Check if applied
+    const isApplied = memberVaccines.some(v => {
+      if (v.status !== "applied") return false;
+      const nameMatch = reco.keywords.some(kw => 
+        v.name.toLowerCase().includes(kw.toLowerCase()) || 
+        v.name.toLowerCase().replace(/[^a-z0-9]/g, "").includes(kw.toLowerCase())
+      );
+      if (!nameMatch) return false;
+      
+      // Let's refine matching by dose. If reco specifies a particular dose, try to match it
+      const recoDoseLower = reco.dose.toLowerCase();
+      const vDoseLower = v.dose.toLowerCase();
+
+      // Reforço match
+      const recoIsReforco = recoDoseLower.includes("reforço") || recoDoseLower.includes("reforco");
+      const vIsReforco = vDoseLower.includes("reforço") || vDoseLower.includes("reforco");
+      if (recoIsReforco !== vIsReforco) return false;
+
+      // Dose única match
+      const recoIsUnica = recoDoseLower.includes("única") || recoDoseLower.includes("unica") || recoDoseLower.includes("único") || recoDoseLower.includes("unico");
+      const vIsUnica = vDoseLower.includes("única") || vDoseLower.includes("unica") || vDoseLower.includes("único") || vDoseLower.includes("unico");
+      if (recoIsUnica !== vIsUnica) return false;
+
+      // Digit match
+      const numPattern = reco.dose.match(/\d/);
+      const vNumPattern = v.dose.match(/\d/);
+      if (numPattern || vNumPattern) {
+        if (!numPattern || !vNumPattern || numPattern[0] !== vNumPattern[0]) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (isApplied) return "applied";
+
+    // 2. Check age constraints
+    const ageInfo = getPreciseAge(member.birthDate);
+    if (!ageInfo) return "pending";
+
+    // Severe rigid limit checks (e.g. Rotavirus)
+    if (reco.rigidLimitDays && ageInfo.totalDays > reco.rigidLimitDays) {
+      return "expired";
+    }
+
+    // Overdue check
+    if (ageInfo.totalMonths > reco.ageMaxInMonths) {
+      return "overdue";
+    }
+
+    // Future check
+    if (ageInfo.totalMonths < reco.ageMinInMonths) {
+      return "future";
+    }
+
+    return "pending";
+  };
+
+  // Automated recommended vaccine Quick Logger
+  const handleAutoRegisterRecommendation = async (reco: typeof RECOMMENDED_VACCINES[0], status: "applied" | "pending") => {
+    try {
+      const { dbService } = await import("../lib/db.ts");
+      const today = new Date().toISOString().split("T")[0];
+      const vaccineId = `vaccine_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      
+      const newVaccine: Vaccine = {
+        id: vaccineId,
+        memberId: member.id,
+        name: reco.name,
+        dose: reco.dose,
+        status: status,
+        appliedDate: status === "applied" ? today : undefined,
+        dueDate: status === "pending" ? today : undefined
+      };
+
+      await dbService.saveVaccine(newVaccine);
+      onDataChanged();
+    } catch (err) {
+      setErrorText("Erro ao registrar imunizante recomendado automaticamente.");
+    }
+  };
+
+  // Prefills standard Add Vaccine form with recommended template fields
+  const handlePrefillAddForm = (reco: typeof RECOMMENDED_VACCINES[0]) => {
+    setVaccineForm({
+      name: reco.name,
+      dose: reco.dose,
+      dueDate: new Date().toISOString().split("T")[0],
+      appliedDate: new Date().toISOString().split("T")[0],
+      isApplied: true,
+      batch: "",
+    });
+    setShowAddVaccine(true);
+    
+    // Smooth scroll to add form
+    const container = document.getElementById("vaccine-form-container");
+    if (container) {
+      container.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  // Filtered lists for this member - excluding surgical procedures and hospitalizations
+  const memberConsultations = consultations
+    .filter((c) => c.memberId === member.id && !(c.specialty?.toLowerCase().includes("cirurgia") || c.reason?.toLowerCase().includes("cirurgia") || (c as any).isSurgery || (c as any).isHospitalization || c.id.startsWith("hospitalization_") || c.specialty?.toLowerCase().includes("internação") || c.specialty?.toLowerCase().includes("internacao")))
+    .sort((a, b) => parseDateToTime(b.date) - parseDateToTime(a.date));
+
+  // Surgical procedures list - excluding hospitalizations
   const memberSurgeries = consultations
-    .filter((c) => c.memberId === member.id && (c.specialty?.toLowerCase().includes("cirurgia") || c.reason?.toLowerCase().includes("cirurgia") || (c as any).isSurgery))
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .filter((c) => c.memberId === member.id && !((c as any).isHospitalization || c.id.startsWith("hospitalization_") || c.specialty?.toLowerCase().includes("internação") || c.specialty?.toLowerCase().includes("internacao")) && (c.specialty?.toLowerCase().includes("cirurgia") || c.reason?.toLowerCase().includes("cirurgia") || (c as any).isSurgery))
+    .sort((a, b) => parseDateToTime(b.date) - parseDateToTime(a.date));
+
+  // Hospitalizations list ("Internações")
+  const memberHospitalizations = consultations
+    .filter((c) => c.memberId === member.id && ((c as any).isHospitalization || c.id.startsWith("hospitalization_") || c.specialty?.toLowerCase().includes("internação") || c.specialty?.toLowerCase().includes("internacao")))
+    .sort((a, b) => parseDateToTime(b.date) - parseDateToTime(a.date));
 
   // Extract available unique specialties for this member
   const availableSpecialties = Array.from(
@@ -240,7 +1201,7 @@ export default function MemberProfile({
 
   const memberExams = exams
     .filter((e) => e.memberId === member.id)
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort((a, b) => parseDateToTime(b.date) - parseDateToTime(a.date));
 
   const filteredExams = memberExams.filter((e) => {
     if (examTypeFilter === "all") return true;
@@ -254,18 +1215,91 @@ export default function MemberProfile({
   const memberVaccines = vaccines
     .filter((v) => v.memberId === member.id)
     .sort((a, b) => {
-      if (a.status === "overdue" && b.status !== "overdue") return -1;
-      if (a.status !== "overdue" && b.status === "overdue") return 1;
-      if (a.status === "pending" && b.status === "applied") return -1;
-      return (a.dueDate || a.appliedDate || "").localeCompare(b.dueDate || b.appliedDate || "");
+      const dateA = a.appliedDate || a.dueDate || "";
+      const dateB = b.appliedDate || b.dueDate || "";
+      return parseDateToTime(dateB) - parseDateToTime(dateA);
     });
 
   const memberVitals = vitals
     .filter((v) => v.memberId === member.id)
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort((a, b) => parseDateToTime(b.date) - parseDateToTime(a.date));
+
+  // Find latest weight and height
+  const latestWeightObj = memberVitals.find(v => v.weight !== undefined && v.weight !== null && Number(v.weight) > 0);
+  const latestWeight = latestWeightObj ? `${latestWeightObj.weight} kg` : "Não informado";
+
+  const latestHeightObj = memberVitals.find(v => v.height !== undefined && v.height !== null && Number(v.height) > 0);
+  const latestHeight = latestHeightObj ? `${latestHeightObj.height} cm` : "Não informado";
+
+  // 1. Health Dashboard Calculations (Today is 2026-06-15)
+  const todayStr = "2026-06-15";
+  const lastConsultationObj = memberConsultations.find(c => c.date <= todayStr) || memberConsultations[0];
+  const lastConsultationVal = lastConsultationObj ? formatDate(lastConsultationObj.date) : "Não registrada";
+
+  const lastExamObj = memberExams.find(e => e.date <= todayStr) || memberExams[0];
+  const lastExamVal = lastExamObj ? formatDate(lastExamObj.date) : "Não registrado";
+
+  // Dynamic pending & overdue vaccine calculations (incorporating recommended calendars + manual entries)
+  const ageInfoForCounters = getPreciseAge(member.birthDate);
+  const memberYearsForCounters = ageInfoForCounters?.years || 0;
+
+  const activeEligibleVaccines = RECOMMENDED_VACCINES.filter(reco => {
+    if (reco.group === "gestantes") {
+      return isPregnantOverride;
+    }
+    if (memberYearsForCounters >= 60) {
+      return reco.group === "elderly" || reco.group === "adults";
+    }
+    if (memberYearsForCounters >= 25) {
+      return reco.group === "adults";
+    }
+    return reco.group === "children";
+  });
+
+  const recommendedPendingOrOverdue = activeEligibleVaccines.filter(reco => {
+    const status = getRecommendationStatus(reco);
+    return status === "overdue" || status === "pending";
+  });
+
+  const customManualPendingOrOverdue = memberVaccines.filter(v => {
+    // Check if manually pending or overdue
+    const statusStr = v.status as string;
+    const isManualPendingOrOverdue = statusStr === "overdue" || statusStr === "pending" || (statusStr === "pending" && v.dueDate && v.dueDate < todayStr);
+    if (!isManualPendingOrOverdue) return false;
+
+    // Filter out if it matches any recommendation to avoid double counting
+    const matchesAnyReco = activeEligibleVaccines.some(reco => {
+      return reco.keywords.some(kw => 
+        v.name.toLowerCase().includes(kw.toLowerCase()) || 
+        v.name.toLowerCase().replace(/[^a-z0-9]/g, "").includes(kw.toLowerCase())
+      );
+    });
+
+    return !matchesAnyReco;
+  });
+
+  const pendingVaccinesVal = recommendedPendingOrOverdue.length + customManualPendingOrOverdue.length;
+
+  const nextRetornoObj = consultations
+    .filter(c => c.memberId === member.id && c.date >= todayStr)
+    .sort((a, b) => parseDateToTime(a.date) - parseDateToTime(b.date))[0];
+  const proximoRetornoVal = nextRetornoObj ? formatDate(nextRetornoObj.date) : "Não agendado";
+
+  // 2. Medical Timeline Calculations (last per event)
+  const timelineLastConsult = memberConsultations[0];
+  const timelineLastExam = memberExams[0];
+  const timelineLastSurgery = memberSurgeries[0];
+  const timelineLastBloodExam = memberExams.find(e => {
+    const text = `${e.title || ""} ${e.category || ""} ${e.observations || ""}`.toLowerCase();
+    const bloodKeywords = ["sangue", "hemograma", "glicose", "colesterol", "glicemia", "blood", "plaqueta", "creatinina", "urea", "trigliceri", "tsh", "t4", "sorologia"];
+    return bloodKeywords.some(kw => text.includes(kw)) || getExamType(e) === "laboratorial";
+  });
+  const timelineLastVaccine = [...vaccines]
+    .filter(v => v.memberId === member.id && v.status === "applied" && v.appliedDate)
+    .sort((a, b) => parseDateToTime(b.appliedDate || "") - parseDateToTime(a.appliedDate || ""))[0];
 
   // Age Calculator
-  const getAge = (birthDate: string) => {
+  function getAge(birthDate: string) {
     if (!birthDate) return null;
     const today = new Date();
     const birth = new Date(birthDate);
@@ -276,15 +1310,15 @@ export default function MemberProfile({
       age--;
     }
     return age;
-  };
+  }
 
-  const formatDate = (dateStr: string) => {
+  function formatDate(dateStr: string) {
     if (!dateStr || typeof dateStr !== "string") return "";
     const parts = dateStr.split("-");
     if (parts.length < 3) return dateStr;
     const [year, month, day] = parts;
     return `${day}/${month}/${year}`;
-  };
+  }
 
   // Submit Hanlders
   const handleAddVital = async (e: React.FormEvent) => {
@@ -423,6 +1457,83 @@ export default function MemberProfile({
     }
   };
 
+  const handleAddHospitalization = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const { dbService } = await import("../lib/db.ts");
+      const consult: Consultation = {
+        id: `hospitalization_${Date.now()}`,
+        memberId: member.id,
+        date: hospitalForm.date,
+        specialty: "Internação Médica",
+        doctor: hospitalForm.doctor,
+        facility: hospitalForm.facility,
+        reason: hospitalForm.reason,
+        prescription: hospitalForm.prescription,
+        notes: hospitalForm.notes,
+        isHospitalization: true,
+        dischargeDate: hospitalForm.dischargeDate || undefined,
+        diagnosis: hospitalForm.diagnosis || undefined
+      };
+
+      await dbService.saveConsultation(consult);
+      setShowAddHospitalization(false);
+      setHospitalForm({
+        date: new Date().toISOString().split("T")[0],
+        dischargeDate: "",
+        facility: "",
+        reason: "",
+        diagnosis: "",
+        doctor: "",
+        prescription: "",
+        notes: ""
+      });
+      onDataChanged();
+    } catch (err) {
+      setErrorText("Erro ao salvar internação.");
+    }
+  };
+
+  const handleStartEditHospitalization = (hospitalization: Consultation) => {
+    setEditingHospitalization(hospitalization);
+    setEditHospitalForm({
+      date: hospitalization.date,
+      dischargeDate: hospitalization.dischargeDate || "",
+      facility: hospitalization.facility || "",
+      reason: hospitalization.reason || "",
+      diagnosis: hospitalization.diagnosis || "",
+      doctor: hospitalization.doctor || "",
+      prescription: hospitalization.prescription || "",
+      notes: hospitalization.notes || ""
+    });
+  };
+
+  const handleSaveHospitalizationEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingHospitalization) return;
+    try {
+      const { dbService } = await import("../lib/db.ts");
+      const updated: Consultation = {
+        ...editingHospitalization,
+        date: editHospitalForm.date,
+        dischargeDate: editHospitalForm.dischargeDate || undefined,
+        facility: editHospitalForm.facility,
+        reason: editHospitalForm.reason,
+        diagnosis: editHospitalForm.diagnosis,
+        doctor: editHospitalForm.doctor,
+        prescription: editHospitalForm.prescription,
+        notes: editHospitalForm.notes,
+        isHospitalization: true
+      };
+
+      await dbService.saveConsultation(updated);
+      setEditingHospitalization(null);
+      onDataChanged();
+    } catch (err) {
+      setErrorText("Erro ao salvar as alterações da internação.");
+    }
+  };
+
   const handleStartEditExam = (exam: Exam) => {
     setEditingExam(exam);
     setEditExamForm({
@@ -542,7 +1653,9 @@ export default function MemberProfile({
       bloodType: member.bloodType || "",
       allergies: member.allergies || "",
       comorbidities: member.comorbidities || "",
-      medications: member.medications || ""
+      medications: member.medications || "",
+      physicalActivity: member.physicalActivity || "",
+      familyHistory: member.familyHistory || ""
     });
     setShowEditProfileModal(true);
   };
@@ -559,7 +1672,9 @@ export default function MemberProfile({
         bloodType: profileForm.bloodType,
         allergies: profileForm.allergies,
         comorbidities: profileForm.comorbidities,
-        medications: profileForm.medications
+        medications: profileForm.medications,
+        physicalActivity: profileForm.physicalActivity,
+        familyHistory: profileForm.familyHistory
       };
 
       await dbService.saveMember(updated);
@@ -713,52 +1828,72 @@ export default function MemberProfile({
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden" id={`profile-card-${member.id}`}>
-      {/* Member Header */}
-      <div className="relative bg-slate-50 p-6 pt-14 sm:pt-6 flex flex-col items-center border-b border-gray-100 text-center">
-        {/* Buttons in top-right corner */}
-        <div className="absolute top-3 right-3 flex items-center gap-1.5 flex-wrap justify-end max-w-[240px] sm:max-w-none">
-          <button
-            type="button"
-            id="btn-edit-member-direct"
-            onClick={() => handleStartEditProfile()}
-            className="py-1 px-2 bg-white hover:bg-slate-100 active:scale-95 text-blue-600 font-extrabold border border-slate-200 hover:border-slate-300 rounded-lg text-[9px] flex items-center gap-1 shadow-3xs transition-all cursor-pointer shrink-0 select-none"
-          >
-            <Edit3 className="w-3 h-3" />
-            Editar Dados
-          </button>
-          <button
-            type="button"
-            id="btn-import-spreadsheet"
-            onClick={() => setShowSpreadsheetImport(true)}
-            className="py-1 px-2 bg-emerald-50 hover:bg-emerald-100/85 active:scale-95 text-emerald-700 font-extrabold border border-emerald-200 hover:border-emerald-300 rounded-lg text-[9px] flex items-center gap-1 shadow-3xs transition-all cursor-pointer shrink-0 select-none"
-          >
-            <FileSpreadsheet className="w-3 h-3" />
-            Importar Planilha
-          </button>
-        </div>
-
-        {/* Centered Profile Avatar */}
-        <div className={`w-16 h-16 rounded-2xl ${member.avatarColor} text-white flex items-center justify-center font-extrabold text-2xl shadow-sm uppercase shrink-0 mx-auto`}>
-          {(member.name || member.relationship).substring(0, 2)}
-        </div>
-        
-        <div className="w-full mt-3 flex flex-col items-center">
-          {/* Member Name centered */}
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight text-center truncate max-w-full leading-tight">
-            {member.name || "Sem Nome"}
-          </h1>
-
-          {/* BELOW: Relationship badge */}
-          <div className="mt-1.5 flex justify-center">
-            <span className="bg-blue-50 text-blue-700 text-xs font-extrabold px-3 py-0.5 rounded-full border border-blue-105 select-none">
-              {member.relationship}
-            </span>
+      {/* Member Header Zone */}
+      <div className="p-5 sm:p-6 bg-slate-50 border-b border-gray-100">
+        {/* Responsive Navbar Style Action Row */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5 pb-4 border-b border-gray-200/50">
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 select-none">
+            Prontuário Individual de Saúde
+          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              id="btn-generate-pdf-summary"
+              onClick={handleGeneratePDF}
+              className="py-1 px-2.5 bg-rose-50 hover:bg-rose-100/90 active:scale-95 text-rose-750 font-extrabold border border-rose-150 rounded-lg text-[10px] flex items-center gap-1 shadow-3xs transition-all cursor-pointer shrink-0 select-none"
+            >
+              <FileText className="w-3.5 h-3.5 text-rose-650" />
+              Gerar Resumo PDF
+            </button>
+            <button
+              type="button"
+              id="btn-edit-member-direct"
+              onClick={() => handleStartEditProfile()}
+              className="py-1 px-2.5 bg-white hover:bg-slate-100 active:scale-95 text-blue-600 font-extrabold border border-slate-205 rounded-lg text-[10px] flex items-center gap-1 shadow-3xs transition-all cursor-pointer shrink-0 select-none"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              Editar Dados
+            </button>
+            <button
+              type="button"
+              id="btn-import-spreadsheet"
+              onClick={() => setShowSpreadsheetImport(true)}
+              className="py-1 px-2.5 bg-emerald-50 hover:bg-emerald-100/85 active:scale-95 text-emerald-700 font-extrabold border border-emerald-150 rounded-lg text-[10px] flex items-center gap-1 shadow-3xs transition-all cursor-pointer shrink-0 select-none"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              Importar Planilha
+            </button>
           </div>
+        </div>
 
-          {/* BELOW: Age/Birthdate info */}
-          <div className="mt-2.5 flex justify-center select-none">
-            <div className="bg-slate-100 border border-slate-200/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-xs text-gray-600 font-semibold">
-              <User className="w-3.5 h-3.5 text-gray-400" />
+        {/* Profile Details Grid */}
+        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 w-full text-center sm:text-left">
+          {/* Avatar */}
+          {member.avatarUrl ? (
+            <img 
+              src={member.avatarUrl} 
+              alt={member.name} 
+              className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-sm shrink-0 mx-auto sm:mx-0"
+            />
+          ) : (
+            <div className={`w-20 h-20 rounded-full ${member.avatarColor} text-white flex items-center justify-center font-extrabold text-2xl shadow-sm uppercase shrink-0 mx-auto sm:mx-0 border-4 border-white`}>
+              {(member.name || member.relationship).substring(0, 2)}
+            </div>
+          )}
+
+          {/* Texts */}
+          <div className="flex-1 min-w-0 flex flex-col items-center sm:items-start pt-1">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full justify-center sm:justify-start">
+              <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight leading-tight whitespace-normal break-words">
+                {member.name || "Sem Nome"}
+              </h1>
+              <span className="bg-blue-50 text-blue-700 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-blue-105 uppercase tracking-wider w-fit shrink-0 mx-auto sm:mx-0">
+                {member.relationship}
+              </span>
+            </div>
+
+            <div className="mt-2.5 select-none flex items-center gap-1.5 text-xs text-gray-650 font-bold bg-white/80 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-slate-200/50 w-fit">
+              <User className="w-3.5 h-3.5 text-gray-400 shrink-0" />
               <span>
                 {getAge(member.birthDate) !== null 
                   ? `${getAge(member.birthDate)} anos (${formatDate(member.birthDate)})`
@@ -766,44 +1901,111 @@ export default function MemberProfile({
               </span>
             </div>
           </div>
+        </div>
 
-          {/* BELOW: Blood Type and Allergies stacked */}
-          <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2 text-xs text-gray-500 font-semibold select-none">
-            <div className="bg-red-50/50 border border-red-100/60 px-2.5 py-1 rounded-lg flex items-center gap-1.5 shrink-0">
-              <span className="font-semibold text-gray-700">Sangue: <span className="text-red-600 font-extrabold">{member.bloodType}</span></span>
-            </div>
-            <div className="text-amber-750 bg-amber-50/70 px-2.5 py-1 rounded-lg border border-amber-100 flex items-center gap-1 shrink-0">
-              <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
-              <span>Alergias: <span className="font-bold text-amber-900">{member.allergies || "Nenhuma registrada"}</span></span>
-            </div>
-          </div>
-
-          {/* Comorbidades e Medicamentos em Uso */}
-          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 pt-3.5 border-t border-slate-200/50 text-left">
-            <div className="bg-white/80 p-3 rounded-xl border border-slate-200/60 flex items-start gap-2.5 shadow-3xs hover:border-slate-300 transition-colors">
-              <div className="p-1.5 bg-rose-50 text-rose-600 rounded-lg shrink-0 mt-0.5">
-                <AlertCircle className="w-4 h-4" />
+        {/* BELOW: Sangue, Alergia, Comorbidades, Medicamentos, Peso e Altura */}
+        <div className="w-full mt-6 pt-5 border-t border-slate-200/60">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 text-left">
+            {/* Tipo Sanguíneo */}
+            <div className="bg-red-50/15 border border-red-100/60 p-3 rounded-xl flex items-start gap-2.5 shadow-3xs hover:border-red-200/65 transition-colors">
+              <div className="p-1 bg-red-50 text-red-650 rounded-lg shrink-0 mt-0.5">
+                <Heart className="w-3.5 h-3.5 fill-red-50" />
               </div>
               <div className="min-w-0 flex-1">
-                <span className="text-3xs font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5">
-                  Comorbidades
-                </span>
-                <p className="text-xs font-bold text-slate-700 leading-relaxed">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5 leading-none">Tipo Sanguíneo</span>
+                <p className="text-xs font-black text-red-650 mt-1 whitespace-normal break-words">
+                  {member.bloodType || "Não informado"}
+                </p>
+              </div>
+            </div>
+
+            {/* Alergias */}
+            <div className="bg-amber-50/15 border border-amber-100/60 p-3 rounded-xl flex items-start gap-2.5 shadow-3xs hover:border-amber-200/65 transition-colors">
+              <div className="p-1 bg-amber-50 text-amber-500 rounded-lg shrink-0 mt-0.5">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5 leading-none">Alergias</span>
+                <p className="text-xs font-bold text-amber-905 mt-1 whitespace-normal break-words">
+                  {member.allergies || "Nenhuma registrada"}
+                </p>
+              </div>
+            </div>
+
+            {/* Comorbidades */}
+            <div className="bg-rose-50/15 border border-rose-100/60 p-3 rounded-xl flex items-start gap-2.5 shadow-3xs hover:border-rose-200/65 transition-colors">
+              <div className="p-1 bg-rose-50 text-rose-600 rounded-lg shrink-0 mt-0.5">
+                <AlertCircle className="w-3.5 h-3.5 text-rose-605" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5 leading-none">Comorbidades</span>
+                <p className="text-xs font-bold text-rose-900 mt-1 whitespace-normal break-words">
                   {member.comorbidities || "Nenhuma registrada"}
                 </p>
               </div>
             </div>
 
-            <div className="bg-white/80 p-3 rounded-xl border border-slate-200/60 flex items-start gap-2.5 shadow-3xs hover:border-slate-300 transition-colors">
-              <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg shrink-0 mt-0.5">
-                <Heart className="w-4 h-4 fill-emerald-50" />
+            {/* Medicamentos em Uso */}
+            <div className="bg-emerald-50/15 border border-emerald-100/60 p-3 rounded-xl flex items-start gap-2.5 shadow-3xs hover:border-emerald-200/65 transition-colors">
+              <div className="p-1 bg-emerald-50 text-emerald-600 rounded-lg shrink-0 mt-0.5">
+                <HeartPulse className="w-3.5 h-3.5" />
               </div>
               <div className="min-w-0 flex-1">
-                <span className="text-3xs font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5">
-                  Medicamentos em Uso
-                </span>
-                <p className="text-xs font-bold text-slate-700 leading-relaxed">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5 leading-none">Medicamentos em Uso</span>
+                <p className="text-xs font-bold text-emerald-950 mt-1 whitespace-normal break-words">
                   {member.medications || "Nenhum em uso contínuo"}
+                </p>
+              </div>
+            </div>
+
+            {/* Peso */}
+            <div className="bg-sky-50/15 border border-sky-100/60 p-3 rounded-xl flex items-start gap-2.5 shadow-3xs hover:border-sky-200/65 transition-colors">
+              <div className="p-1 bg-sky-50 text-sky-600 rounded-lg shrink-0 mt-0.5">
+                <Scale className="w-3.5 h-3.5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5 leading-none">Peso</span>
+                <p className="text-xs font-black text-sky-950 mt-1 whitespace-normal break-words">
+                  {latestWeight}
+                </p>
+              </div>
+            </div>
+
+            {/* Altura */}
+            <div className="bg-indigo-50/15 border border-indigo-100/60 p-3 rounded-xl flex items-start gap-2.5 shadow-3xs hover:border-indigo-200/65 transition-colors">
+              <div className="p-1 bg-indigo-50 text-indigo-600 rounded-lg shrink-0 mt-0.5">
+                <Ruler className="w-3.5 h-3.5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5 leading-none">Altura</span>
+                <p className="text-xs font-black text-indigo-950 mt-1 whitespace-normal break-words">
+                  {latestHeight}
+                </p>
+              </div>
+            </div>
+
+            {/* Atividade Física Regular */}
+            <div className="bg-teal-50/15 border border-teal-100/60 p-3 rounded-xl flex items-start gap-2.5 shadow-3xs hover:border-teal-200/65 transition-colors">
+              <div className="p-1 bg-teal-50 text-teal-600 rounded-lg shrink-0 mt-0.5">
+                <Dumbbell className="w-3.5 h-3.5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5 leading-none">Atividade Física</span>
+                <p className="text-xs font-bold text-teal-950 mt-1 whitespace-normal break-words">
+                  {member.physicalActivity || "Não informada / Sedentário"}
+                </p>
+              </div>
+            </div>
+
+            {/* Antecedentes Familiares */}
+            <div className="bg-purple-50/15 border border-purple-100/60 p-3 rounded-xl flex items-start gap-2.5 shadow-3xs hover:border-purple-200/65 transition-colors">
+              <div className="p-1 bg-purple-50 text-purple-650 rounded-lg shrink-0 mt-0.5">
+                <Users className="w-3.5 h-3.5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5 leading-none">Antecedentes Familiares</span>
+                <p className="text-xs font-bold text-purple-950 mt-1 whitespace-normal break-words">
+                  {member.familyHistory || "Nenhum histórico registrado"}
                 </p>
               </div>
             </div>
@@ -814,12 +2016,13 @@ export default function MemberProfile({
       {/* Tabs */}
       <div className="flex overflow-x-auto border-b border-gray-100 bg-white scrollbar-none" id="profile-tabs" style={{ scrollbarWidth: "none" }}>
         <div className="flex min-w-max sm:min-w-full w-full">
-          {(["summary", "consultations", "surgeries", "exams", "vaccines"] as ProfileTab[]).map((tab) => {
+          {(["summary", "consultations", "surgeries", "hospitalizations", "exams", "vaccines"] as ProfileTab[]).map((tab) => {
             const isSelected = activeTab === tab;
             const labels = {
               summary: "Acompanhamento",
               consultations: "Consultas",
               surgeries: "Cirurgias",
+              hospitalizations: "Internações",
               exams: "Exames",
               vaccines: "Vacinas"
             };
@@ -827,6 +2030,7 @@ export default function MemberProfile({
               summary: Heart,
               consultations: Calendar,
               surgeries: Activity,
+              hospitalizations: Hospital,
               exams: Clipboard,
               vaccines: Syringe
             };
@@ -868,6 +2072,213 @@ export default function MemberProfile({
         {activeTab === "summary" && (
           <div className="space-y-6">
             
+            {/* Dashboard de Saúde Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-left">
+              {/* Card 1: Última consulta */}
+              <div className="p-3.5 bg-gradient-to-br from-blue-50/50 to-white border border-blue-100 rounded-xl shadow-3xs">
+                <div className="flex items-center gap-2 mb-1.5 text-blue-600">
+                  <Calendar className="w-4 h-4 shrink-0" />
+                  <span className="text-[10px] font-extrabold uppercase tracking-wide text-blue-500/90">Última Consulta</span>
+                </div>
+                <div className="text-sm font-black text-slate-800 tracking-tight">
+                  {lastConsultationVal}
+                </div>
+                {lastConsultationObj && (
+                  <div className="text-[9px] text-slate-400 mt-0.5 truncate max-w-full font-medium">
+                    Dr. {lastConsultationObj.doctor} ({lastConsultationObj.specialty})
+                  </div>
+                )}
+              </div>
+
+              {/* Card 2: Último exame */}
+              <div className="p-3.5 bg-gradient-to-br from-teal-50/40 to-white border border-teal-100 rounded-xl shadow-3xs">
+                <div className="flex items-center gap-2 mb-1.5 text-teal-600">
+                  <Clipboard className="w-4 h-4 shrink-0" />
+                  <span className="text-[10px] font-extrabold uppercase tracking-wide text-teal-500/90">Último Exame</span>
+                </div>
+                <div className="text-sm font-black text-slate-805 text-slate-800 tracking-tight">
+                  {lastExamVal}
+                </div>
+                {lastExamObj && (
+                  <div className="text-[9px] text-slate-400 mt-0.5 truncate max-w-full font-medium">
+                    {lastExamObj.title}
+                  </div>
+                )}
+              </div>
+
+              {/* Card 3: Vacinas pendentes */}
+              <div className="p-3.5 bg-gradient-to-br from-amber-50/50 to-white border border-amber-100 rounded-xl shadow-3xs">
+                <div className="flex items-center gap-2 mb-1.5 text-amber-600">
+                  <Syringe className="w-4 h-4 shrink-0" />
+                  <span className="text-[10px] font-extrabold uppercase tracking-wide text-amber-500/90">Vacinas Pendentes</span>
+                </div>
+                <div className="text-sm font-black text-slate-800 tracking-tight flex items-center gap-1.5">
+                  <span>{pendingVaccinesVal}</span>
+                  {pendingVaccinesVal > 0 && (
+                    <span className="bg-red-500 text-white rounded-full text-[9px] font-black px-1.5 py-0.2 animate-pulse">
+                      Ação
+                    </span>
+                  )}
+                </div>
+                <div className="text-[9px] text-slate-400 mt-0.5 font-medium">
+                  {pendingVaccinesVal === 1 ? "1 dose pendente" : `${pendingVaccinesVal} doses pendentes`}
+                </div>
+              </div>
+
+              {/* Card 4: Próximo Retorno */}
+              <div className="p-3.5 bg-gradient-to-br from-purple-50/50 to-white border border-purple-100 rounded-xl shadow-3xs">
+                <div className="flex items-center gap-2 mb-1.5 text-purple-600">
+                  <HeartPulse className="w-4 h-4 shrink-0" />
+                  <span className="text-[10px] font-extrabold uppercase tracking-wide text-purple-500/90">Próximo Retorno</span>
+                </div>
+                <div className="text-sm font-black text-slate-800 tracking-tight">
+                  {proximoRetornoVal}
+                </div>
+                {nextRetornoObj && (
+                  <div className="text-[9px] text-slate-400 mt-0.5 truncate max-w-full font-medium">
+                    Dr. {nextRetornoObj.doctor} ({nextRetornoObj.specialty})
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Linha do Tempo Médica Card */}
+            <div className="p-5 bg-white border border-slate-200/70 rounded-2xl shadow-3xs text-left space-y-4">
+              <div>
+                <h4 className="font-extrabold text-slate-900 text-sm flex items-center gap-1.5">
+                  <Activity className="w-4 h-4 text-rose-500" />
+                  Linha do Tempo Médica Recente
+                </h4>
+                <p className="text-[10px] text-gray-400 font-medium">
+                  Últimos acontecimentos médicos e exames registrados
+                </p>
+              </div>
+
+              {/* Tree timeline hierarchy */}
+              <div className="pl-3 space-y-3.5 relative border-l border-slate-100">
+                {/* 1. Consulta */}
+                <div className="relative">
+                  {/* Timeline bullet/node */}
+                  <div className="absolute -left-[17px] top-1 w-2 w-2 h-2 rounded-full bg-blue-500 border border-white shadow-3xs" />
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pl-3">
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-850 flex items-center gap-1">
+                        ├ Consulta
+                      </span>
+                      {timelineLastConsult ? (
+                        <p className="text-xs text-slate-500 font-semibold pl-4">
+                          {timelineLastConsult.specialty} — Dr. {timelineLastConsult.doctor} ({timelineLastConsult.facility})
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-400 font-medium pl-4 italic">Nenhuma consulta registrada</p>
+                      )}
+                    </div>
+                    {timelineLastConsult && (
+                      <span className="bg-blue-50 text-blue-700 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-blue-100 self-start sm:self-auto uppercase tracking-wide">
+                        {formatDate(timelineLastConsult.date)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Exame sangue */}
+                <div className="relative">
+                  <div className="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-red-400 border border-white shadow-3xs" />
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pl-3">
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-850 flex items-center gap-1">
+                        ├ Exame sangue
+                      </span>
+                      {timelineLastBloodExam ? (
+                        <p className="text-xs text-slate-500 font-semibold pl-4">
+                          {timelineLastBloodExam.title} ({timelineLastBloodExam.facility})
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-400 font-medium pl-4 italic">Nenhum exame de sangue registrado</p>
+                      )}
+                    </div>
+                    {timelineLastBloodExam && (
+                      <span className="bg-red-50 text-red-700 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-red-100 self-start sm:self-auto uppercase tracking-wide">
+                        {formatDate(timelineLastBloodExam.date)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. Vacina */}
+                <div className="relative">
+                  <div className="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-emerald-500 border border-white shadow-3xs" />
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pl-3">
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-850 flex items-center gap-1">
+                        ├ Vacina
+                      </span>
+                      {timelineLastVaccine ? (
+                        <p className="text-xs text-slate-500 font-semibold pl-4">
+                          {timelineLastVaccine.name} (Dose: {timelineLastVaccine.dose || "Dose Única"}) {timelineLastVaccine.batch ? `| Lote: ${timelineLastVaccine.batch}` : ""}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-400 font-medium pl-4 italic">Nenhuma vacina aplicada registrada</p>
+                      )}
+                    </div>
+                    {timelineLastVaccine && (
+                      <span className="bg-emerald-50 text-emerald-700 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-emerald-100 self-start sm:self-auto uppercase tracking-wide">
+                        {formatDate(timelineLastVaccine.appliedDate || "")}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4. Exame */}
+                <div className="relative">
+                  <div className="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-teal-500 border border-white shadow-3xs" />
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pl-3">
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-850 flex items-center gap-1">
+                        ├ Exame
+                      </span>
+                      {timelineLastExam ? (
+                        <p className="text-xs text-slate-500 font-semibold pl-4">
+                          {timelineLastExam.title} [{timelineLastExam.category || "Geral"}] ({timelineLastExam.facility})
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-400 font-medium pl-4 italic">Nenhum exame geral registrado</p>
+                      )}
+                    </div>
+                    {timelineLastExam && (
+                      <span className="bg-teal-50 text-teal-700 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-teal-100 self-start sm:self-auto uppercase tracking-wide">
+                        {formatDate(timelineLastExam.date)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 5. Cirurgia */}
+                <div className="relative">
+                  <div className="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-purple-500 border border-white shadow-3xs" />
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pl-3">
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-850 flex items-center gap-1">
+                        └ Cirurgia
+                      </span>
+                      {timelineLastSurgery ? (
+                        <p className="text-xs text-slate-500 font-semibold pl-4">
+                          {timelineLastSurgery.reason || timelineLastSurgery.specialty} ({timelineLastSurgery.facility})
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-400 font-medium pl-4 italic">Nenhuma cirurgia registrada</p>
+                      )}
+                    </div>
+                    {timelineLastSurgery && (
+                      <span className="bg-purple-50 text-purple-700 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-purple-100 self-start sm:self-auto uppercase tracking-wide">
+                        {formatDate(timelineLastSurgery.date)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* AI Summary Card Widget */}
             <div className="p-3.5 sm:p-4 bg-gradient-to-br from-indigo-50/60 via-blue-50/30 to-white border border-indigo-150/90 rounded-2xl shadow-3xs">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
@@ -1712,7 +3123,7 @@ export default function MemberProfile({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
               <div>
                 <h3 className="font-extrabold text-gray-900 text-lg">Carteira de Vacinação</h3>
-                <p className="text-xs text-gray-500">Histórico de doses aplicadas e controle de pendências</p>
+                <p className="text-xs text-gray-500">Histórico de doses aplicadas, controle de pendências e calendário vacinal inteligente</p>
               </div>
               <button
                 type="button"
@@ -1724,8 +3135,34 @@ export default function MemberProfile({
               </button>
             </div>
 
+            {/* View Switcher Pills */}
+            <div className="flex border-b border-gray-150 pb-0.5 select-none">
+              <button
+                type="button"
+                onClick={() => setVaccineView("calendar")}
+                className={`pb-2.5 px-4 font-extrabold text-xs transition-all relative cursor-pointer ${
+                  vaccineView === "calendar"
+                    ? "text-blue-600 border-b-2 border-blue-600 font-black"
+                    : "text-gray-500 hover:text-gray-800"
+                }`}
+              >
+                🗓️ Calendário Inteligente (Recomendações)
+              </button>
+              <button
+                type="button"
+                onClick={() => setVaccineView("booklet")}
+                className={`pb-2.5 px-4 font-extrabold text-xs transition-all relative cursor-pointer ${
+                  vaccineView === "booklet"
+                    ? "text-blue-600 border-b-2 border-blue-600 font-black"
+                    : "text-gray-500 hover:text-gray-800"
+                }`}
+              >
+                📋 Minha Carteira / Histórico ({memberVaccines.length})
+              </button>
+            </div>
+
             {showAddVaccine && (
-              <form onSubmit={handleAddVaccine} className="bg-gray-50 p-5 rounded-2xl border border-gray-200 mt-2 space-y-4 text-left">
+              <form id="vaccine-form-container" onSubmit={handleAddVaccine} className="bg-gray-50 p-5 rounded-2xl border border-gray-200 mt-2 space-y-4 text-left">
                 <h4 className="font-bold text-sm text-gray-800">Nova Vacina / Imunizante</h4>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1734,7 +3171,7 @@ export default function MemberProfile({
                     <input
                       type="text"
                       required
-                      placeholder="Ex: Tríplice Viral, Gripe Tetravalente"
+                      placeholder="Ex: Tríplice Viral, Gripe"
                       value={vaccineForm.name}
                       onChange={(e) => setVaccineForm({ ...vaccineForm, name: e.target.value })}
                       className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-blue-100"
@@ -1821,75 +3258,378 @@ export default function MemberProfile({
               </form>
             )}
 
-            {/* List Vaccines */}
-            {memberVaccines.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">
-                <Syringe className="w-12 h-12 mx-auto text-gray-300 mb-2" />
-                <p className="font-semibold text-gray-600">Nenhuma vacina registrada</p>
-                <p className="text-xs bg-slate-50 inline-block px-3 py-1.5 rounded-lg border border-gray-100 mt-2 text-gray-500">Mantenha o calendário sanitário da família atualizado!</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {memberVaccines.map((item) => {
-                  const isOverdue = item.status === "overdue";
-                  const isPending = item.status === "pending";
+            {vaccineView === "calendar" ? (
+              <div className="space-y-6">
+                {/* 1. Header Information Summary (Ficha) */}
+                {(() => {
+                  const ageInfo = getPreciseAge(member.birthDate);
+                  if (!ageInfo) {
+                    return (
+                      <div className="p-4 bg-amber-50 text-amber-800 rounded-xl border border-amber-200 text-left text-xs font-semibold">
+                        Por favor, adicione a data de nascimento deste membro no seu perfil para obter o calendário vacinal personalizado.
+                      </div>
+                    );
+                  }
+
+                  const years = ageInfo.years;
+                  const totalMonths = ageInfo.totalMonths;
                   
+                  // Decide appropriate standard age category text
+                  let categoryLabel = "Infantil (Crianças)";
+                  if (years >= 60) {
+                    categoryLabel = "Idosos (60+) e Melhor Idade";
+                  } else if (years >= 25) {
+                    categoryLabel = "Adultos (25 a 59 Anos)";
+                  } else if (years >= 10) {
+                    categoryLabel = "Adolescentes e Jovens (10 a 24 Anos)";
+                  } else if (years >= 6) {
+                    categoryLabel = "Infantojuvenil (6 a 9 Anos)";
+                  } else if (totalMonths >= 24) {
+                    categoryLabel = "Primeira Infância (2 a 5 Anos)";
+                  } else {
+                    categoryLabel = "Bebês e Lactentes (0 a 23 Meses)";
+                  }
+
+                  // Retrieve matching vaccines list based on target age coorte
+                  const eligibleVaccines = RECOMMENDED_VACCINES.filter(reco => {
+                    // Always show gestantes vaccines if toggled
+                    if (reco.group === "gestantes") {
+                      return isPregnantOverride;
+                    }
+                    if (years >= 60) {
+                      // Elderly can take elderly rules or standard adult rules (e.g. dT or Hep B)
+                      return reco.group === "elderly" || reco.group === "adults";
+                    }
+                    if (years >= 25) {
+                      return reco.group === "adults";
+                    }
+                    // Under 25 matches children & adolescents guidelines
+                    return reco.group === "children";
+                  });
+
+                  // Evaluate counts for status progress
+                  let overdueCount = 0;
+                  let appliedCount = 0;
+                  let pendingCount = 0;
+                  let futureCount = 0;
+                  let expiredCount = 0;
+
+                  const analyzedEligible = eligibleVaccines.map(reco => {
+                    const status = getRecommendationStatus(reco);
+                    if (status === "overdue") overdueCount++;
+                    else if (status === "applied") appliedCount++;
+                    else if (status === "pending") pendingCount++;
+                    else if (status === "future") futureCount++;
+                    else if (status === "expired") expiredCount++;
+
+                    return { ...reco, calculatedStatus: status };
+                  });
+
+                  const filteredAnalyzed = analyzedEligible.filter(item => {
+                    if (selectedCalendarFilter === "all") return true;
+                    return item.calculatedStatus === selectedCalendarFilter;
+                  });
+
+                  const totalEligibleCount = analyzedEligible.length;
+                  const pctOk = totalEligibleCount > 0 ? Math.round((appliedCount / totalEligibleCount) * 100) : 0;
+
                   return (
-                    <div 
-                      key={item.id} 
-                      className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-left ${
-                        isOverdue 
-                          ? "border-red-200 bg-red-50/20" 
-                          : isPending 
-                            ? "border-amber-100 bg-yellow-50/10" 
-                            : "border-gray-100 bg-white"
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <h4 className="font-extrabold text-gray-900 text-sm leading-tight">{item.name}</h4>
-                          <span className={`text-3xs font-extrabold px-1.5 py-0.5 rounded ${
-                            isOverdue 
-                              ? "bg-red-500 text-white animate-pulse" 
-                              : isPending ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
-                          }`}>
-                            {item.status === "applied" ? "Aplicada / Ok" : isOverdue ? "Atrasada!" : "Pendente"}
-                          </span>
+                    <div className="space-y-6">
+                      <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 p-5 rounded-2xl border border-slate-200/60 text-left animate-in fade-in duration-200">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          <div>
+                            <span className="text-3xs font-extrabold uppercase tracking-widest bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                              Perfil de Imunidade
+                            </span>
+                            <h4 className="font-extrabold text-gray-900 mt-2 text-base md:text-lg">
+                              {member.name}
+                            </h4>
+                            <p className="text-xs font-semibold text-gray-600 mt-0.5">
+                              Idade: <strong className="text-gray-800">{years > 0 ? `${years} ${years === 1 ? 'ano' : 'anos'}` : ""} {ageInfo.months > 0 ? `${ageInfo.months} ${ageInfo.months === 1 ? 'mês' : 'meses'}` : years === 0 ? "Menos de 1 mês" : ""}</strong> ({ageInfo.totalMonths} meses acumulados)
+                            </p>
+                            <p className="text-xs font-semibold text-gray-500 mt-1">
+                              Grupo Recomendado: <strong className="text-blue-600 font-bold">{categoryLabel}</strong>
+                            </p>
+                          </div>
+
+                          <div className="flex flex-col gap-2 shrink-0">
+                            {/* Gestante Mode Switch - Only eligible for females above 12 years old */}
+                            {isFemaleMember(member) && years >= 12 && (
+                              <label className="flex items-center gap-2.5 bg-emerald-50/55 p-3 rounded-xl border border-emerald-100/70 cursor-pointer hover:bg-emerald-50 transition-colors select-none animate-in fade-in zoom-in-95 duration-150">
+                                <input
+                                  type="checkbox"
+                                  checked={isPregnantOverride}
+                                  onChange={(e) => setIsPregnantOverride(e.target.checked)}
+                                  className="w-4 h-4 rounded text-emerald-600 border-emerald-300 focus:ring-emerald-500"
+                                />
+                                <div>
+                                  <span className="text-xs font-extrabold text-emerald-800 block">Foco Pré-Natal (Gestante)</span>
+                                  <span className="text-4xs font-semibold text-emerald-600 block leading-none mt-0.5">Ativar vacinas indicadas na gestação</span>
+                                </div>
+                              </label>
+                            )}
+                          </div>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 font-semibold">
-                          <span>Dose: {item.dose}</span>
-                          {item.appliedDate && <span>Aferido em: <strong className="text-gray-700 font-bold">{formatDate(item.appliedDate)}</strong></span>}
-                          {item.dueDate && <span>Vencimento do Prazo: <strong className={isOverdue ? "text-red-600" : "text-gray-700"}>{formatDate(item.dueDate)}</strong></span>}
-                          {item.batch && <span className="text-2xs bg-gray-100 px-2 rounded font-mono">Lote: {item.batch}</span>}
+                        {/* Progress Tracker */}
+                        <div className="mt-5 pt-4 border-t border-slate-200/60">
+                          <div className="flex items-center justify-between mb-1.5 text-xs">
+                            <span className="font-bold text-gray-700">Imunização Governamental Coberta:</span>
+                            <span className="font-black text-blue-600">{appliedCount} de {totalEligibleCount} ({pctOk}%)</span>
+                          </div>
+                          <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden flex">
+                            <div 
+                              className="bg-blue-600 h-full rounded-full transition-all duration-500" 
+                              style={{ width: `${pctOk}%` }} 
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCalendarFilter("all")}
+                              className={`py-1.5 px-2 bg-white hover:bg-slate-50 border rounded-lg text-3xs font-extrabold transition-all text-center flex flex-col items-center justify-center cursor-pointer ${
+                                selectedCalendarFilter === "all" ? "border-slate-800 text-slate-800 font-black shadow-xs" : "border-slate-150 text-slate-500"
+                              }`}
+                            >
+                              <span>Todas</span>
+                              <span className="text-xs mt-0.5 text-slate-700 font-black">{totalEligibleCount}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCalendarFilter("overdue")}
+                              className={`py-1.5 px-2 bg-white hover:bg-red-50 border rounded-lg text-3xs font-extrabold transition-all text-center flex flex-col items-center justify-center cursor-pointer ${
+                                selectedCalendarFilter === "overdue" ? "border-red-600 text-red-600 font-black shadow-xs bg-red-50/10" : "border-slate-150 text-red-500/80"
+                              }`}
+                            >
+                              <span>🚨 Atrasadas</span>
+                              <span className="text-xs mt-0.5 font-black">{overdueCount}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCalendarFilter("pending")}
+                              className={`py-1.5 px-2 bg-white hover:bg-amber-50 border rounded-lg text-3xs font-extrabold transition-all text-center flex flex-col items-center justify-center cursor-pointer ${
+                                selectedCalendarFilter === "pending" ? "border-amber-500 text-amber-700 font-black shadow-xs bg-amber-50/10" : "border-slate-150 text-amber-500"
+                              }`}
+                            >
+                              <span>⏳ Aplicar / No Prazo</span>
+                              <span className="text-xs mt-0.5 font-black">{pendingCount}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCalendarFilter("applied")}
+                              className={`py-1.5 px-2 bg-white hover:bg-emerald-50 border rounded-lg text-3xs font-extrabold transition-all text-center flex flex-col items-center justify-center cursor-pointer ${
+                                selectedCalendarFilter === "applied" ? "border-emerald-600 text-emerald-600 font-black shadow-xs bg-emerald-50/10" : "border-slate-150 text-emerald-600/80"
+                              }`}
+                            >
+                              <span>✅ Em Dia</span>
+                              <span className="text-xs mt-0.5 font-black">{appliedCount}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCalendarFilter("future")}
+                              className={`py-1.5 px-2 bg-white hover:bg-blue-50 border rounded-lg text-3xs font-extrabold transition-all text-center flex flex-col items-center justify-center cursor-pointer ${
+                                selectedCalendarFilter === "future" ? "border-blue-500 text-blue-600 font-black shadow-xs bg-blue-50/10" : "border-slate-150 text-blue-500"
+                              }`}
+                            >
+                              <span>📅 Futuras</span>
+                              <span className="text-xs mt-0.5 font-black">{futureCount}</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-0 border-gray-100 justify-end">
-                        {(isPending || isOverdue) && (
-                          <button
-                            type="button"
-                            id={`btn-apply-vaccine-${item.id}`}
-                            onClick={() => handleToggleVaccineApplied(item)}
-                            className="py-1.5 px-3 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-emerald-100 transition-all cursor-pointer"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            Aplicar Hoje
-                          </button>
+                      {/* 2. Vaccine Listing Cards */}
+                      <div className="space-y-3">
+                        {filteredAnalyzed.length === 0 ? (
+                          <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                            <Info className="w-8 h-8 text-slate-400 mx-auto mb-1.5" />
+                            <p className="text-xs font-extrabold text-slate-600">Nenhum imunizante nesta categoria de filtro</p>
+                            <p className="text-3xs text-slate-400 mt-0.5">Altere o filtro acima para explorar outras imunizações do calendário.</p>
+                          </div>
+                        ) : (
+                          filteredAnalyzed.map(reco => {
+                            const isOverdue = reco.calculatedStatus === "overdue";
+                            const isApplied = reco.calculatedStatus === "applied";
+                            const isPending = reco.calculatedStatus === "pending";
+                            const isFuture = reco.calculatedStatus === "future";
+                            const isExpired = reco.calculatedStatus === "expired";
+
+                            return (
+                              <div
+                                key={reco.id}
+                                className={`p-4 rounded-xl border transition-all text-left flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                                  isOverdue
+                                    ? "border-red-200 bg-red-50/10 hover:bg-red-50/25"
+                                    : isApplied
+                                      ? "border-emerald-100 bg-emerald-50/5 hover:bg-emerald-50/15"
+                                      : isPending
+                                        ? "border-amber-100 bg-amber-50/10 hover:bg-amber-50/20"
+                                        : isFuture
+                                          ? "border-blue-50 bg-slate-50/30 text-gray-500"
+                                          : "border-slate-200 bg-gray-100/50 grayscale opacity-65"
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                                    <h5 className="font-extrabold text-sm text-gray-900 leading-tight">
+                                      {reco.name}
+                                    </h5>
+                                    
+                                    <span className="text-4xs font-black bg-slate-200/70 text-slate-600 px-1.5 py-0.5 rounded">
+                                      {reco.dose}
+                                    </span>
+                                    
+                                    <span className="text-4xs font-black bg-blue-105 text-blue-700 px-1.5 py-0.5 rounded">
+                                      {reco.targetAgeText}
+                                    </span>
+
+                                    <span className={`text-[9px] font-black tracking-normal px-2 py-0.5 rounded-full ${
+                                      isOverdue
+                                        ? "bg-red-500 text-white animate-pulse"
+                                        : isApplied
+                                          ? "bg-emerald-600 text-white"
+                                          : isPending
+                                            ? "bg-amber-500 text-white"
+                                            : isFuture
+                                              ? "bg-blue-500 text-white"
+                                              : "bg-gray-400 text-white"
+                                    }`}>
+                                      {isOverdue 
+                                        ? "🚨 Atrasada!" 
+                                        : isApplied 
+                                          ? "✓ Aplicada" 
+                                          : isPending 
+                                            ? "⏳ Aplicar Hoje" 
+                                            : isFuture 
+                                              ? "📅 Futura" 
+                                              : "❌ Prazo Expirado"
+                                      }
+                                    </span>
+                                  </div>
+
+                                  <div className="text-xs text-gray-600 mt-1 font-medium leading-relaxed max-w-2xl">
+                                    {reco.observations}
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-1.5 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-0 border-gray-100/75 justify-end">
+                                  {isApplied ? (
+                                    <span className="text-3xs font-black text-emerald-700 flex items-center gap-1 bg-emerald-50 px-2 py-1.5 rounded-lg border border-emerald-100">
+                                      <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3px]" />
+                                      Salvo na Carteira
+                                    </span>
+                                  ) : isExpired ? (
+                                    <span className="text-3xs font-bold text-gray-400 italic">
+                                      Fora do limite rígido do SUS
+                                    </span>
+                                  ) : (
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handlePrefillAddForm(reco)}
+                                        className="py-1.5 px-2 bg-white text-blue-600 border border-slate-200 hover:bg-slate-50 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs"
+                                        title="Registrar manualmente com lote, data de aplicação etc."
+                                      >
+                                        Adicionar Info
+                                      </button>
+                                      
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAutoRegisterRecommendation(reco, "applied")}
+                                        className="py-1.5 px-3 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-xs font-black transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                                        title="Marcar vacina como tomada hoje rapidamente"
+                                      >
+                                        <Check className="w-3.5 h-3.5 stroke-[3px]" />
+                                        Tomada Hoje
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
                         )}
-                        <button
-                          type="button"
-                          onClick={() => handleStartEditVaccine(item)}
-                          className="p-1.5 text-blue-600 hover:bg-blue-50 bg-white hover:text-blue-700 border border-slate-200/55 rounded transition-colors cursor-pointer"
-                          title="Editar vacina"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
                       </div>
                     </div>
                   );
-                })}
+                })()}
               </div>
+            ) : (
+              /* List Custom Booklet Vaccines (O histórico da carteira) */
+              memberVaccines.length === 0 ? (
+                <div className="text-center py-12 text-gray-400 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                  <Syringe className="w-12 h-12 mx-auto text-gray-300 mb-2" />
+                  <p className="font-semibold text-gray-600">Nenhuma vacina manual registrada</p>
+                  <p className="text-xs bg-slate-50 inline-block px-3 py-1.5 rounded-lg border border-gray-100 mt-2 text-gray-500">Mantenha o histórico sanitário personalizado sempre atualizado!</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {memberVaccines.map((item) => {
+                    const isOverdue = item.status === "overdue" || (item.status === "pending" && item.dueDate && item.dueDate < todayStr);
+                    const isPending = item.status === "pending" && (!item.dueDate || item.dueDate >= todayStr);
+                    
+                    return (
+                      <div 
+                        key={item.id} 
+                        className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-left ${
+                          isOverdue 
+                            ? "border-red-200 bg-red-50/20" 
+                            : isPending 
+                              ? "border-amber-100 bg-yellow-50/10" 
+                              : "border-gray-100 bg-white"
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <h4 className="font-extrabold text-gray-900 text-sm leading-tight">{item.name}</h4>
+                            <span className={`text-3xs font-extrabold px-1.5 py-0.5 rounded ${
+                              isOverdue 
+                                ? "bg-red-500 text-white animate-pulse" 
+                                : isPending ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                            }`}>
+                              {item.status === "applied" ? "Aplicada / Ok" : isOverdue ? "Atrasada!" : "Pendente"}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 font-semibold">
+                            <span>Dose: {item.dose}</span>
+                            {item.appliedDate && <span>Aferido em: <strong className="text-gray-700 font-bold">{formatDate(item.appliedDate)}</strong></span>}
+                            {item.dueDate && <span>Vencimento do Prazo: <strong className={isOverdue ? "text-red-600" : "text-gray-700"}>{formatDate(item.dueDate)}</strong></span>}
+                            {item.batch && <span className="text-2xs bg-gray-100 px-2 rounded font-mono">Lote: {item.batch}</span>}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-0 border-gray-100 justify-end">
+                          {(isPending || isOverdue) && (
+                            <button
+                              type="button"
+                              id={`btn-apply-vaccine-${item.id}`}
+                              onClick={() => handleToggleVaccineApplied(item)}
+                              className="py-1.5 px-3 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-emerald-100 transition-all cursor-pointer"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              Aplicar Hoje
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditVaccine(item)}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 bg-white hover:text-blue-700 border border-slate-200/55 rounded transition-colors cursor-pointer"
+                            title="Editar vacina"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
             )}
           </div>
         )}
@@ -2079,6 +3819,214 @@ export default function MemberProfile({
             )}
           </div>
         )}
+
+        {/* 2.6. Hospitalizations Tab Screen */}
+        {activeTab === "hospitalizations" && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
+              <div>
+                <h3 className="font-extrabold text-gray-900 text-lg">Histórico de Internações</h3>
+                <p className="text-xs text-gray-500">Admissão hospitalar, pronto-socorro prolongado e altas clínicas</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddHospitalization(!showAddHospitalization)}
+                className="py-2.5 px-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer self-stretch sm:self-auto"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Registrar Internação
+              </button>
+            </div>
+
+            {showAddHospitalization && (
+              <form onSubmit={handleAddHospitalization} className="bg-gray-50 p-5 rounded-2xl border border-gray-200 mt-2 space-y-4 text-left animate-in slide-in-from-top-4 duration-205">
+                <div className="flex justify-between items-center pb-2 border-b border-gray-200/50">
+                  <h4 className="font-bold text-sm text-gray-850">Nova Internação Hospitalar</h4>
+                </div>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-2xs font-bold text-gray-600 mb-1">Data de Admissão (Entrada)</label>
+                    <input
+                      type="date"
+                      required
+                      value={hospitalForm.date}
+                      onChange={(e) => setHospitalForm({ ...hospitalForm, date: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-blue-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-2xs font-bold text-gray-600 mb-1">Data de Alta (Opcional)</label>
+                    <input
+                      type="date"
+                      value={hospitalForm.dischargeDate}
+                      onChange={(e) => setHospitalForm({ ...hospitalForm, dischargeDate: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-blue-100"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-2xs font-bold text-gray-600 mb-1">Hospital / Instituição</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Hospital Municipal, Santa Casa"
+                      value={hospitalForm.facility}
+                      onChange={(e) => setHospitalForm({ ...hospitalForm, facility: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-2xs font-bold text-gray-600 mb-1">Médico Responsável (Opcional)</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Dr. Marcelo Ramos"
+                      value={hospitalForm.doctor}
+                      onChange={(e) => setHospitalForm({ ...hospitalForm, doctor: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-2xs font-bold text-gray-600 mb-1">Motivo da Internação / Queixa Principal</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Apendicite aguda, Complicações respiratórias, Crise hipertensiva"
+                    value={hospitalForm.reason}
+                    onChange={(e) => setHospitalForm({ ...hospitalForm, reason: e.target.value })}
+                    className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-2xs font-bold text-gray-600 mb-1">Diagnóstico Clínico (CID principal / Detalhes)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Apendicite Aguda Supurativa K35.3"
+                    value={hospitalForm.diagnosis}
+                    onChange={(e) => setHospitalForm({ ...hospitalForm, diagnosis: e.target.value })}
+                    className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-2xs font-bold text-gray-600 mb-1">Tratamentos / Medicamentos Administrados</label>
+                  <textarea
+                    placeholder="Ex: Soro fisiológico, Antibioticoterapia endovenosa, Monitorização"
+                    value={hospitalForm.prescription}
+                    onChange={(e) => setHospitalForm({ ...hospitalForm, prescription: e.target.value })}
+                    rows={2}
+                    className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-2xs font-bold text-gray-600 mb-1">Anotações Gerais / Recomendações pós-alta</label>
+                  <textarea
+                    placeholder="Ex: Evitar carregar peso por 15 dias, repouso físico..."
+                    value={hospitalForm.notes}
+                    onChange={(e) => setHospitalForm({ ...hospitalForm, notes: e.target.value })}
+                    rows={2}
+                    className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                  />
+                </div>
+
+                <div className="flex gap-2 justify-end pt-2">
+                  <button
+                    type="submit"
+                    className="py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Save className="w-4 h-4" />
+                    Adicionar Internação
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddHospitalization(false)}
+                    className="py-2.5 px-4 bg-white text-gray-600 border border-gray-200 rounded-lg text-xs font-semibold hover:bg-gray-50"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* List Hospitalizations */}
+            {memberHospitalizations.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <Hospital className="w-12 h-12 mx-auto text-gray-300 mb-2" />
+                <p className="font-semibold text-gray-600">Nenhuma internação registrada</p>
+                <p className="text-xs bg-slate-50 inline-block px-3 py-1.5 rounded-lg border border-gray-100 mt-2 text-gray-500 font-semibold">Adicione registros de internação caso o paciente tenha sido hospitalizado.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {memberHospitalizations.map((item) => {
+                  const isStillAdmitted = !item.dischargeDate;
+                  return (
+                    <div 
+                      key={item.id} 
+                      className="p-5 rounded-2xl border border-gray-100 bg-white hover:border-gray-200 relative text-left transition-all"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditHospitalization(item)}
+                        className="absolute right-4 top-4 p-1.5 text-blue-600 hover:bg-blue-50 bg-white hover:text-blue-700 border border-slate-200/55 rounded transition-colors cursor-pointer"
+                        title="Editar internação"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+
+                      <div className="flex flex-wrap items-center gap-2 mb-3">
+                        <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-md border border-indigo-100">
+                          Entrada: {formatDate(item.date)}
+                        </span>
+                        {isStillAdmitted ? (
+                          <span className="text-xxs font-extrabold tracking-wider uppercase px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200 animate-pulse">
+                            Internado Atualmente
+                          </span>
+                        ) : (
+                          <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">
+                            Alta: {formatDate(item.dischargeDate)}
+                          </span>
+                        )}
+                        <span className="text-xxs font-extrabold tracking-wider uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                          Internação Hospitalar
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <span className="text-2xs font-extrabold text-gray-400 uppercase">Diagnóstico / Motivo</span>
+                          <h4 className="font-extrabold text-gray-800 text-base">{item.reason || "Internação Geral"}</h4>
+                          {item.diagnosis && <p className="text-xs text-indigo-650 mt-1 font-bold">Diagnóstico: {item.diagnosis}</p>}
+                          {item.doctor && <p className="text-xs text-gray-500 mt-0.5 font-medium">Médico Responsável: {item.doctor}</p>}
+                          {item.facility && <p className="text-2xs text-gray-400 font-medium mt-1">{item.facility}</p>}
+                        </div>
+
+                        <div>
+                          <span className="text-2xs font-extrabold text-gray-400 uppercase block">Tratamentos / Prescrições</span>
+                          <p className="text-xs text-slate-705 text-slate-700 font-medium mt-1 leading-relaxed whitespace-pre-line bg-blue-50/20 border border-blue-100/50 p-2.5 rounded-xl">
+                            {item.prescription || "Monitoramento continuado e repouso clínico."}
+                          </p>
+                        </div>
+
+                        <div>
+                          <span className="text-2xs font-extrabold text-gray-400 uppercase block">Recomendações e Alta</span>
+                          <p className="text-xs text-gray-600 bg-gray-50 p-2.5 rounded-xl border border-gray-100 font-medium mt-1 leading-relaxed whitespace-pre-line">
+                            {item.notes || "Sem observações adicionais gravadas."}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Edit Profile Modal Dialog */}
@@ -2180,6 +4128,28 @@ export default function MemberProfile({
                   placeholder="Ex: Nenhum, Cloridrato de Sertralina 50mg (1x ao dia pela manhã)"
                   value={profileForm.medications}
                   onChange={(e) => setProfileForm({ ...profileForm, medications: e.target.value })}
+                  rows={2}
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-2xs font-bold text-gray-600 mb-1">Atividade Física Regular</label>
+                <textarea
+                  placeholder="Ex: Nenhuma, Musculação 3x por semana, Corrida leve nos finais de semana"
+                  value={profileForm.physicalActivity}
+                  onChange={(e) => setProfileForm({ ...profileForm, physicalActivity: e.target.value })}
+                  rows={2}
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-2xs font-bold text-gray-600 mb-1">Antecedentes Familiares</label>
+                <textarea
+                  placeholder="Ex: Hipertensão (pai, avô materno), Câncer de mama (tia materna)"
+                  value={profileForm.familyHistory}
+                  onChange={(e) => setProfileForm({ ...profileForm, familyHistory: e.target.value })}
                   rows={2}
                   className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
                 />
@@ -2621,6 +4591,152 @@ export default function MemberProfile({
                   <button
                     type="button"
                     onClick={() => setEditingSurgery(null)}
+                    className="py-2.5 px-4 bg-white text-gray-600 border border-gray-200 rounded-lg text-xs font-semibold hover:bg-gray-100"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Hospitalization Modal Dialog */}
+      {editingHospitalization && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-100">
+          <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl animate-in zoom-in-95 duration-155 p-6 flex flex-col text-left">
+            <div className="flex justify-between items-center pb-4 border-b border-gray-100 mb-4 select-none">
+              <h3 className="text-lg font-extrabold text-gray-900 inline-flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-blue-500" />
+                Editar Registro de Internação
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingHospitalization(null)}
+                className="p-1 px-1.5 hover:bg-gray-100 text-gray-400 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveHospitalizationEdit} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1 text-left">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-2xs font-bold text-gray-600 mb-1">Data de Admissão (Entrada)</label>
+                  <input
+                    type="date"
+                    required
+                    value={editHospitalForm.date}
+                    onChange={(e) => setEditHospitalForm({ ...editHospitalForm, date: e.target.value })}
+                    className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-blue-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-2xs font-bold text-gray-600 mb-1">Data de Alta (Opcional)</label>
+                  <input
+                    type="date"
+                    value={editHospitalForm.dischargeDate}
+                    onChange={(e) => setEditHospitalForm({ ...editHospitalForm, dischargeDate: e.target.value })}
+                    className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-blue-100"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-2xs font-bold text-gray-600 mb-1">Hospital / Instituição</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Hospital Municipal"
+                    value={editHospitalForm.facility}
+                    onChange={(e) => setEditHospitalForm({ ...editHospitalForm, facility: e.target.value })}
+                    className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-2xs font-bold text-gray-600 mb-1">Médico Responsável (Opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Dr. Marcelo Ramos"
+                    value={editHospitalForm.doctor}
+                    onChange={(e) => setEditHospitalForm({ ...editHospitalForm, doctor: e.target.value })}
+                    className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-2xs font-bold text-gray-600 mb-1">Motivo da Internação / Queixa Principal</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Apendicite aguda, Crise hipertensiva"
+                  value={editHospitalForm.reason}
+                  onChange={(e) => setEditHospitalForm({ ...editHospitalForm, reason: e.target.value })}
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-2xs font-bold text-gray-600 mb-1">Diagnóstico Clínico (CID/Detalhes)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Apendicite Aguda Supurativa K35.3"
+                  value={editHospitalForm.diagnosis}
+                  onChange={(e) => setEditHospitalForm({ ...editHospitalForm, diagnosis: e.target.value })}
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-2xs font-bold text-gray-600 mb-1">Tratamentos / Medicamentos Administrados</label>
+                <textarea
+                  placeholder="Ex: Cirurgia de apendicectomia por laparoscopia, antibióticos IV"
+                  value={editHospitalForm.prescription}
+                  onChange={(e) => setEditHospitalForm({ ...editHospitalForm, prescription: e.target.value })}
+                  rows={2}
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-2xs font-bold text-gray-600 mb-1">Anotações Gerais / Recomendações pós-alta</label>
+                <textarea
+                  placeholder="Ex: Evitar esforços por 30 dias, retorno clínico..."
+                  value={editHospitalForm.notes}
+                  onChange={(e) => setEditHospitalForm({ ...editHospitalForm, notes: e.target.value })}
+                  rows={2}
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-100 font-semibold"
+                />
+              </div>
+
+              <div className="flex gap-2 justify-between pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (editingHospitalization) {
+                      setEditingHospitalization(null);
+                      await handleDeleteItem("consultations", editingHospitalization.id);
+                    }
+                  }}
+                  className="py-2.5 px-4 bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer border border-red-200/50 animate-in duration-75"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Remover Registro
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className="py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Save className="w-4 h-4" />
+                    Salvar Alterações
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingHospitalization(null)}
                     className="py-2.5 px-4 bg-white text-gray-600 border border-gray-200 rounded-lg text-xs font-semibold hover:bg-gray-100"
                   >
                     Cancelar

@@ -8,6 +8,10 @@ export interface FamilyMember {
   avatarColor: string; // Tailwind color class for profile badge
   comorbidities?: string; // e.g., 'Asma, Rinite...'
   medications?: string; // e.g., 'Symbicort 6/200 1x dia...'
+  avatarUrl?: string; // Base64 or uploaded profile picture data url
+  gender?: "M" | "F"; // M = Masculino, F = Feminino
+  physicalActivity?: string; // Regular Physical Activity
+  familyHistory?: string; // Family History / Ancestry conditions
 }
 
 export interface Consultation {
@@ -20,6 +24,10 @@ export interface Consultation {
   reason: string; // Motivo da consulta
   prescription: string; // Receita médica
   notes: string;
+  isSurgery?: boolean;
+  isHospitalization?: boolean;
+  dischargeDate?: string;
+  diagnosis?: string;
 }
 
 export interface Exam {

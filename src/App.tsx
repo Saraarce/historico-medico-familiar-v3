@@ -3,15 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { 
   HeartPulse, BrainCircuit, Bell, Settings, Award, Users, 
   Plus, Edit3, CheckCircle, Smartphone, Info, Save, X, Database,
-  Cloud, RefreshCw, AlertTriangle, Download, Trash2
+  Cloud, RefreshCw, AlertTriangle, Download, Trash2, LogOut
 } from "lucide-react";
 
 import { FamilyMember, Consultation, Exam, HealthVital, Vaccine } from "./types";
 import { dbService } from "./lib/db";
+import { backupService } from "./lib/backupService";
 
 // Components
 import MemberProfile from "./components/MemberProfile";
@@ -35,10 +36,17 @@ export default function App() {
 
   // Auto Cloud Sync Detect States
   const [googleAuthState, setGoogleAuthState] = useState<{ user: any; token: string | null }>({ user: null, token: null });
+  const [isSessionExpired, setIsSessionExpired] = useState(false);
   const [driveCheckPending, setDriveCheckPending] = useState(true);
-  const [driveBackupToOffer, setDriveBackupToOffer] = useState<{ id: string; name: string; modifiedTime: string; size?: string } | null>(null);
+  const [driveBackupToOffer, setDriveBackupToOffer] = useState<{ id: string; name: string; modifiedTime?: string; size?: string } | null>(null);
   const [showDriveOfferModal, setShowDriveOfferModal] = useState(false);
   const [autoRestoreLoading, setAutoRestoreLoading] = useState(false);
+
+  // Auto Backup and Synchronize states
+  const [isAppInitialized, setIsAppInitialized] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<"synced" | "syncing" | "failed" | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
 
   // PWA installation states
   const [deferredPrompt, setDeferredPrompt] = useState<any | null>(null);
@@ -56,7 +64,11 @@ export default function App() {
     bloodType: "", 
     allergies: "",
     comorbidities: "",
-    medications: ""
+    medications: "",
+    avatarUrl: "",
+    gender: "F",
+    physicalActivity: "",
+    familyHistory: "",
   });
 
   // Load all data from IndexedDB
@@ -84,36 +96,56 @@ export default function App() {
     }
   };
 
-  const checkDriveBackupForNewerVersion = async (token: string) => {
+  /**
+   * Automatically synchronizes data on application startup.
+   */
+  const performStartupSync = async (token: string) => {
+    setDriveCheckPending(true);
+    setSyncStatus("syncing");
     try {
-      const q = encodeURIComponent("(name contains '.json' or mimeType = 'application/json') and trashed = false");
-      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime,size)&orderBy=modifiedTime desc&pageSize=10`;
+      console.log("[Startup Sync] Verificando backups no Google Drive...");
+      const files = await backupService.fetchBackupList(token);
       
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        const files = data.files || [];
-        if (files.length > 0) {
-          const newestFile = files[0];
-          
-          const localLastUpdateStr = dbService.getLocalLastUpdate();
-          const localTime = localLastUpdateStr ? new Date(localLastUpdateStr).getTime() : 0;
-          const driveTime = newestFile.modifiedTime ? new Date(newestFile.modifiedTime).getTime() : 0;
-          
-          if (driveTime > localTime + 5000) {
-            const dismissedId = sessionStorage.getItem(`dismissed_drive_restore_${newestFile.id}`);
-            if (!dismissedId) {
-              setDriveBackupToOffer(newestFile);
-              setShowDriveOfferModal(true);
-            }
+      const localLastUpdateStr = dbService.getLocalLastUpdate();
+      const localTime = localLastUpdateStr ? new Date(localLastUpdateStr).getTime() : 0;
+
+      if (files.length === 0) {
+        console.log("[Startup Sync] Nenhum backup na nuvem. Enviando dados locais atuais automaticamente...");
+        await backupService.exportToDrive(token);
+        setSyncStatus("synced");
+        setTimeout(() => setSyncStatus(null), 8000);
+      } else {
+        const newestFile = files[0];
+        const driveTime = newestFile.modifiedTime ? new Date(newestFile.modifiedTime).getTime() : 0;
+        
+        console.log(`[Startup Sync] Comparação: Local=${new Date(localTime).toISOString()} | Nuvem=${new Date(driveTime).toISOString()}`);
+        
+        if (driveTime > localTime + 5000) {
+          console.log("[Startup Sync] Nuvem mais recente. Oferecendo restauração...");
+          const dismissedId = sessionStorage.getItem(`dismissed_drive_restore_${newestFile.id}`);
+          if (!dismissedId) {
+            setDriveBackupToOffer(newestFile);
+            setShowDriveOfferModal(true);
           }
+          setSyncStatus("synced");
+        } else if (localTime > driveTime + 5000) {
+          console.log("[Startup Sync] Local mais recente. Realizando backup automático em andamento...");
+          await backupService.exportToDrive(token);
+          setSyncStatus("synced");
+          setTimeout(() => setSyncStatus(null), 8000);
+        } else {
+          console.log("[Startup Sync] Dados perfeitamente sincronizados.");
+          setSyncStatus("synced");
+          setTimeout(() => setSyncStatus(null), 5000);
         }
       }
-    } catch (err) {
-      console.error("Erro ao verificar versão de backup no auto-check:", err);
+    } catch (err: any) {
+      console.error("[Startup Sync] Falha catastrófica de sincronização inicial:", err);
+      setSyncStatus("failed");
+      setSyncError(err.message || String(err));
+      if (err.message?.includes("401") || err.message?.toLowerCase().includes("unauthorized") || err.message?.toLowerCase().includes("expirado")) {
+        setIsSessionExpired(true);
+      }
     } finally {
       setDriveCheckPending(false);
     }
@@ -123,68 +155,25 @@ export default function App() {
     if (!googleAuthState.token || !driveBackupToOffer) return;
     
     setAutoRestoreLoading(true);
+    setSyncStatus("syncing");
     try {
-      const url = `https://www.googleapis.com/drive/v3/files/${driveBackupToOffer.id}?alt=media`;
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${googleAuthState.token}` }
-      });
-      
-      if (!res.ok) {
-        throw new Error(`Falha ao obter backup do Drive: HTTP ${res.status}`);
-      }
-      
-      const backup = await res.json();
-      if (!backup || typeof backup !== "object") {
-        throw new Error("Formato de arquivo JSON do backup é inválido.");
-      }
-      
-      const membersList = backup.members || [];
-      const consultationsList = backup.consultations || [];
-      const examsList = backup.exams || [];
-      const vitalsList = backup.vitals || [];
-      const vaccinesList = backup.vaccines || [];
-      
-      if (mode === "replace") {
-        await dbService.clearAllData();
-      }
-      
-      for (const m of membersList) {
-        await dbService.saveMember(m);
-      }
-      for (const c of consultationsList) {
-        await dbService.saveConsultation(c);
-      }
-      for (const ex of examsList) {
-        await dbService.saveExam(ex);
-      }
-      for (const vt of vitalsList) {
-        await dbService.saveVital(vt);
-      }
-      for (const vc of vaccinesList) {
-        await dbService.saveVaccine(vc);
-      }
-      
-      if (backup.exportedAt) {
-        dbService.setLocalLastUpdate(backup.exportedAt);
-      } else if (driveBackupToOffer.modifiedTime) {
-        dbService.setLocalLastUpdate(driveBackupToOffer.modifiedTime);
-      } else {
-        dbService.setLocalLastUpdate(new Date().toISOString());
-      }
-
-      // Persist active Google Drive file details for subsequent edits
-      dbService.setActiveDriveFile(driveBackupToOffer.id, driveBackupToOffer.name);
+      const backup = await backupService.downloadBackup(googleAuthState.token, driveBackupToOffer.id);
+      await backupService.restoreBackupData(backup, mode, driveBackupToOffer.modifiedTime);
       
       alert(
         `Sucesso! Prontuário restaurado com sucesso a partir do Google Drive.\n` +
-        `Carregados: ${membersList.length} integrante(s), ${consultationsList.length} consulta(s), ${examsList.length} exame(s).`
+        `Carregados: ${backup.members?.length || 0} integrante(s), ${backup.consultations?.length || 0} consulta(s), ${backup.exams?.length || 0} exame(s).`
       );
       
       setShowDriveOfferModal(false);
       setDriveBackupToOffer(null);
+      setSyncStatus("synced");
       await loadClinicalData();
+      setTimeout(() => setSyncStatus(null), 5000);
     } catch (err: any) {
-      console.error(err);
+      console.error("Erro na autorrestauração:", err);
+      setSyncStatus("failed");
+      setSyncError(err.message || String(err));
       alert("Falha ao restaurar backup automaticamente: " + (err.message || String(err)));
     } finally {
       setAutoRestoreLoading(false);
@@ -198,35 +187,119 @@ export default function App() {
     setShowDriveOfferModal(false);
   };
 
+  const handleMainGoogleSignIn = async () => {
+    try {
+      setAuthChecking(true);
+      const { googleSignIn } = await import("./lib/auth");
+      const result = await googleSignIn();
+      if (result) {
+        setGoogleAuthState({ user: result.user, token: result.accessToken });
+        setIsSessionExpired(false);
+        await performStartupSync(result.accessToken);
+      }
+    } catch (err: any) {
+      console.error("[Login] Erro no login Google:", err);
+      alert("Falha na autenticação do Google: " + (err.message || "Usuário cancelou ou sem conexão."));
+    } finally {
+      setAuthChecking(false);
+    }
+  };
+
+  const handleMainGoogleSignOut = async () => {
+    try {
+      setAuthChecking(true);
+      const { logout } = await import("./lib/auth");
+      await logout();
+      setGoogleAuthState({ user: null, token: null });
+      setIsSessionExpired(false);
+      setSyncStatus(null);
+    } catch (err) {
+      console.error("[Logout] Erro de signOut:", err);
+    } finally {
+      setAuthChecking(false);
+    }
+  };
+
   useEffect(() => {
     loadClinicalData();
   }, []);
 
+  // Monitor Auth sessions on app startup
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
     
     import("./lib/auth")
-      .then(({ initAuth }) => {
+      .then(({ initAuth, isTokenExpired }) => {
+        const expired = isTokenExpired();
+        setIsSessionExpired(expired);
         unsubscribe = initAuth(
           async (user, token) => {
             setGoogleAuthState({ user, token });
-            checkDriveBackupForNewerVersion(token);
+            setAuthChecking(false);
+            if (expired) {
+              setSyncStatus("failed");
+              setSyncError("Sessão Google Drive expirou.");
+              setDriveCheckPending(false);
+              setIsAppInitialized(true);
+            } else {
+              setIsSessionExpired(false);
+              await performStartupSync(token);
+              setIsAppInitialized(true);
+            }
           },
           () => {
             setGoogleAuthState({ user: null, token: null });
+            setIsSessionExpired(false);
             setDriveCheckPending(false);
+            setAuthChecking(false);
+            setIsAppInitialized(true);
           }
         );
       })
       .catch((err) => {
         console.error("Erro ao iniciar auth listener no App:", err);
         setDriveCheckPending(false);
+        setAuthChecking(false);
+        setIsAppInitialized(true);
       });
 
     return () => {
       if (unsubscribe) unsubscribe();
     };
   }, []);
+
+  // Automatic Background debounced backup monitoring
+  useEffect(() => {
+    if (!isAppInitialized || isLoading) return;
+    if (!googleAuthState.token || isSessionExpired) {
+      console.log("[Autobackup] Aguardando conexão Google Drive ou sessão expirada para habilitar backups automáticos...");
+      return;
+    }
+
+    // Trigger debounced upload 10 seconds after any change
+    console.log("[Autobackup] Registros alterados. Iniciando cronômetro de 10s para backup em background.");
+    setSyncStatus("syncing");
+
+    const timer = setTimeout(async () => {
+      try {
+        console.log("[Autobackup] Iniciando backup automático silencioso em segundo plano...");
+        await backupService.exportToDrive(googleAuthState.token!);
+        console.log("[Autobackup] Backup em background finalizado com absoluto sucesso.");
+        setSyncStatus("synced");
+        setSyncError(null);
+        setTimeout(() => setSyncStatus(current => current === "synced" ? null : current), 5000);
+      } catch (err: any) {
+        console.error("[Autobackup] Falha no backup automático em segundo plano:", err);
+        setSyncStatus("failed");
+        setSyncError(err.message || String(err));
+        if (err.message?.includes("401") || err.message?.toLowerCase().includes("unauthorized") || err.message?.toLowerCase().includes("expirado")) {
+          setIsSessionExpired(true);
+        }
+      }
+    }, 10000); // 10 seconds debounce!
+
+    return () => clearTimeout(timer);
+  }, [members, consultations, exams, vitals, vaccines, googleAuthState.token, isSessionExpired, isAppInitialized, isLoading]);
 
   // Monitor PWA installation prompt lifecycle
   useEffect(() => {
@@ -284,12 +357,27 @@ export default function App() {
       allergies: "",
       comorbidities: "",
       medications: "",
+      avatarUrl: "",
+      gender: "F",
+      physicalActivity: "",
+      familyHistory: "",
     });
   };
 
   const handleEditMemberClick = (member: FamilyMember) => {
     setIsAddingNewMember(false);
     setEditingMember(member);
+    
+    // Auto-infer gender from relationship if not present yet
+    let defaultGender = member.gender || "M";
+    if (!member.gender) {
+      const relLow = (member.relationship || "").toLowerCase();
+      const femaleTerms = ["mãe", "mae", "filha", "avó", "avo", "tia", "irmã", "irma", "esposa", "mulher", "prima", "madrasta", "enteada", "gestante", "grávida", "gravida"];
+      if (femaleTerms.some(term => relLow.includes(term))) {
+        defaultGender = "F";
+      }
+    }
+
     setEditForm({
       name: member.name,
       relationship: member.relationship,
@@ -298,6 +386,10 @@ export default function App() {
       allergies: member.allergies,
       comorbidities: member.comorbidities || "",
       medications: member.medications || "",
+      avatarUrl: member.avatarUrl || "",
+      gender: defaultGender,
+      physicalActivity: member.physicalActivity || "",
+      familyHistory: member.familyHistory || "",
     });
   };
 
@@ -378,6 +470,10 @@ export default function App() {
           avatarColor: randomColor,
           comorbidities: editForm.comorbidities,
           medications: editForm.medications,
+          avatarUrl: editForm.avatarUrl,
+          gender: editForm.gender as "M" | "F",
+          physicalActivity: editForm.physicalActivity,
+          familyHistory: editForm.familyHistory,
         };
 
         await dbService.saveMember(newMember);
@@ -393,6 +489,10 @@ export default function App() {
           allergies: editForm.allergies,
           comorbidities: editForm.comorbidities,
           medications: editForm.medications,
+          avatarUrl: editForm.avatarUrl,
+          gender: editForm.gender as "M" | "F",
+          physicalActivity: editForm.physicalActivity,
+          familyHistory: editForm.familyHistory,
         };
 
         await dbService.saveMember(updated);
@@ -408,10 +508,59 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
         <div className="w-14 h-14 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4" />
-        <h3 className="text-gray-800 font-bold text-lg select-none">Iniciando Familink Saúde...</h3>
-        <p className="text-sm text-gray-500 mt-1 select-none">Configurando base de dados offline e de alta velocidade.</p>
+        <h3 className="text-slate-800 font-bold text-lg select-none">Iniciando Familink Saúde...</h3>
+        <p className="text-sm text-slate-500 mt-1 select-none">Configurando base de dados offline e de alta velocidade.</p>
+      </div>
+    );
+  }
+
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-12 h-12 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin mb-4" />
+        <h3 className="text-slate-800 font-bold text-lg select-none">Verificando sessão Google...</h3>
+        <p className="text-sm text-slate-500 mt-1 select-none">Conectando ao canal de backup do Google Drive de forma segura.</p>
+      </div>
+    );
+  }
+
+  if (!googleAuthState.user) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl overflow-hidden shadow-xl p-8 border border-slate-150 text-center flex flex-col items-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="relative p-4 bg-gradient-to-tr from-blue-50 to-indigo-50 text-blue-600 rounded-2xl mb-5 flex items-center justify-center shadow-inner">
+            <HeartPulse className="w-10 h-10 text-indigo-600 animate-pulse" />
+          </div>
+          
+          <h2 className="text-2xl font-black text-gray-900 leading-tight tracking-tight">
+            Bem-vindo ao Familink Saúde
+          </h2>
+          <p className="text-xs font-black text-blue-600 tracking-wider uppercase block mt-1.5 mb-4">
+            Prontuário Médico Familiar Integrado
+          </p>
+
+          <p className="text-xs sm:text-sm text-gray-600 font-medium leading-relaxed mb-6">
+            Para garantir a privacidade absoluta e o backup automático em tempo real do seu prontuário clínico familiar, conecte-se com segurança ao seu <strong>Google Drive</strong>. Seus dados médicos são salvos de forma confidencial em sua própria conta da nuvem.
+          </p>
+
+          <div className="w-full space-y-3.5">
+            <button
+              onClick={handleMainGoogleSignIn}
+              id="btn-google-login-start"
+              className="w-full py-3.5 px-4 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white font-black text-xs sm:text-sm rounded-2xl flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition-all cursor-pointer"
+            >
+              <Cloud className="w-4.5 h-4.5 animate-bounce" />
+              Entrar com o Google para Começar
+            </button>
+            
+            <div className="flex items-center justify-center gap-1.5 text-slate-400 text-[9px] font-extrabold uppercase tracking-widest pt-1">
+              <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+              Armazenamento 100% Criptografado & Pessoal
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -447,28 +596,83 @@ export default function App() {
 
           {/* Quick Action elements */}
           <div className="select-none shrink-0 flex items-center gap-1.5 sm:gap-2">
+            {/* Sync automatic background status indicator */}
+            {syncStatus && (
+              <div 
+                id="sync-indicator-badge"
+                className={`flex items-center gap-1 sm:gap-1.5 px-2 py-1 sm:px-2.5 rounded-xl text-[9px] sm:text-[10px] font-extrabold tracking-wide border transition-all animate-in fade-in duration-150 ${
+                  syncStatus === "syncing"
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : syncStatus === "synced"
+                    ? "bg-emerald-50 text-emerald-800 border-emerald-250 animate-pulse"
+                    : "bg-red-50 text-red-800 border-red-200"
+                }`}
+                title={syncError || undefined}
+              >
+                {syncStatus === "syncing" && <RefreshCw className="w-3 h-3 animate-spin text-amber-600 shrink-0" />}
+                {syncStatus === "synced" && <CheckCircle className="w-3 h-3 text-emerald-600 shrink-0" />}
+                {syncStatus === "failed" && <AlertTriangle className="w-3 h-3 text-red-600 shrink-0" />}
+                
+                <span className="hidden sm:inline">
+                  {syncStatus === "syncing" && "Sincronizando..."}
+                  {syncStatus === "synced" && "Sincronizado"}
+                  {syncStatus === "failed" && "Sincronização Falhou"}
+                </span>
+                <span className="sm:hidden">
+                  {syncStatus === "syncing" && "Sinc..."}
+                  {syncStatus === "synced" && "Sincronizado"}
+                  {syncStatus === "failed" && "Falhou..."}
+                </span>
+              </div>
+            )}
+
             {showInstallBtn && (
               <button
                 type="button"
                 id="btn-install-pwa"
                 onClick={handleInstallClick}
-                className="px-2.5 py-1.5 sm:px-3.5 sm:py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold border border-emerald-500 rounded-xl text-[10px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 hover:brightness-105"
+                className="px-2 py-1 sm:px-3 sm:py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold border border-emerald-500 rounded-xl text-[10px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 hover:brightness-105"
               >
                 <Smartphone className="w-3.5 h-3.5 text-white shrink-0" />
-                <span className="hidden sm:inline">Instalar Aplicativo</span>
-                <span className="sm:hidden">Instalar</span>
+                <span className="hidden sm:inline">Instalar</span>
               </button>
             )}
+            
+            {isSessionExpired && (
+              <button
+                type="button"
+                id="btn-reconnect-google-drive"
+                onClick={handleMainGoogleSignIn}
+                className="px-2 py-1 sm:px-3 sm:py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-extrabold border border-amber-400 rounded-xl text-[10px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 animate-pulse"
+                title="Sua sessão expirou devido ao limite de tempo do Google Drive. Clique aqui para reconectar em 1 segundo!"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-white shrink-0 animate-spin" style={{ animationDuration: '3s' }} />
+                <span>Reconectar</span>
+              </button>
+            )}
+
             <button
               type="button"
               id="btn-open-backup"
               onClick={() => setShowBackup(true)}
-              className="px-2.5 py-1.5 sm:px-3.5 sm:py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold border border-blue-200 rounded-xl text-[10px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer shadow-3xs active:scale-95"
+              className="px-2 py-1 sm:px-3 sm:py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold border border-blue-200 rounded-xl text-[10px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer shadow-3xs active:scale-95"
             >
               <Database className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-              <span className="hidden sm:inline">Salvar ou Restaurar</span>
-              <span className="sm:hidden">Sincronizar</span>
+              <span className="hidden sm:inline">Nuvem</span>
+              <span className="sm:hidden">Backup</span>
             </button>
+
+            {googleAuthState.user && (
+              <button
+                type="button"
+                id="btn-google-logout"
+                onClick={handleMainGoogleSignOut}
+                className="p-1 sm:p-1.5 bg-slate-50 hover:bg-red-50 text-gray-500 hover:text-red-650 rounded-xl hover:border-red-150 border border-slate-200 transition-all cursor-pointer"
+                title="Sair da Conta Google"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -567,9 +771,17 @@ export default function App() {
                       onClick={() => setSelectedMemberId(member.id)}
                     >
                       {/* Circle avatar badge */}
-                      <div className={`w-10 h-10 rounded-lg ${member.avatarColor} text-white font-extrabold flex items-center justify-center shadow-3xs uppercase tracking-wide`}>
-                        {(member.name || member.relationship).substring(0, 2)}
-                      </div>
+                      {member.avatarUrl ? (
+                        <img 
+                          src={member.avatarUrl} 
+                          alt={member.name} 
+                          className="w-10 h-10 rounded-lg object-cover shadow-3xs"
+                        />
+                      ) : (
+                        <div className={`w-10 h-10 rounded-lg ${member.avatarColor} text-white font-extrabold flex items-center justify-center shadow-3xs uppercase tracking-wide`}>
+                          {(member.name || member.relationship).substring(0, 2)}
+                        </div>
+                      )}
                       
                       <div className="min-w-[80px]">
                         <h4 className="font-bold text-gray-900 text-xs truncate leading-snug">{member.name || "Sem Nome"}</h4>
@@ -673,6 +885,54 @@ export default function App() {
             </h3>
 
             <form onSubmit={handleEditMemberSubmit} className="space-y-4 overflow-y-auto max-h-[70vh] pr-1">
+              {/* Foto de Perfil */}
+              <div className="flex flex-col items-center justify-center bg-slate-50 p-4 rounded-2xl border border-dashed border-slate-200">
+                <label className="block text-2xs font-extrabold text-slate-500 uppercase tracking-widest mb-3 select-none">Foto de Perfil</label>
+                <div className="relative group">
+                  {editForm.avatarUrl ? (
+                    <img 
+                      src={editForm.avatarUrl} 
+                      alt="Foto de perfil" 
+                      className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-md"
+                    />
+                  ) : (
+                    <div className="w-24 h-24 rounded-full flex items-center justify-center bg-slate-250 text-slate-600 border-4 border-white shadow-md text-2xl font-black">
+                      {editForm.name ? editForm.name.slice(0, 2).toUpperCase() : <Users className="w-8 h-8 text-slate-400" />}
+                    </div>
+                  )}
+                  
+                  <label htmlFor="member-profile-photo-upload" className="absolute bottom-0 right-0 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg cursor-pointer transition-transform duration-100 hover:scale-110 active:scale-95">
+                    <Edit3 className="w-4 h-4" />
+                    <input 
+                      id="member-profile-photo-upload"
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setEditForm(prev => ({ ...prev, avatarUrl: reader.result as string }));
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+                {editForm.avatarUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setEditForm(prev => ({ ...prev, avatarUrl: "" }))}
+                    className="text-2xs text-rose-600 font-bold hover:underline mt-2 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3 h-3" /> Remover Foto
+                  </button>
+                )}
+                <p className="text-[10px] text-slate-400 mt-2 text-center select-none font-medium">JPEG ou PNG. Redimensionado para o círculo.</p>
+              </div>
+
               <div>
                 <label className="block text-2xs font-bold text-gray-600 uppercase tracking-wider mb-1">Nome Completo</label>
                 <input
@@ -711,6 +971,17 @@ export default function App() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
+                  <label className="block text-2xs font-bold text-gray-600 uppercase tracking-wider mb-1">Sexo Biológico</label>
+                  <select
+                    value={editForm.gender}
+                    onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
+                    className="w-full p-2.5 border border-gray-200 rounded-xl text-sm focus:ring-1 focus:ring-blue-105 text-gray-800 font-semibold"
+                  >
+                    <option value="F">Feminino</option>
+                    <option value="M">Masculino</option>
+                  </select>
+                </div>
+                <div>
                   <label className="block text-2xs font-bold text-gray-600 uppercase tracking-wider mb-1">Tipo Sanguíneo</label>
                   <select
                     value={editForm.bloodType}
@@ -724,16 +995,17 @@ export default function App() {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-2xs font-bold text-gray-600 uppercase tracking-wider mb-1">Alergias</label>
-                  <input
-                    type="text"
-                    placeholder="Ex: Nenhuma, Dipirona..."
-                    value={editForm.allergies}
-                    onChange={(e) => setEditForm({ ...editForm, allergies: e.target.value })}
-                    className="w-full p-2.5 border border-gray-200 rounded-xl text-sm focus:ring-1 focus:ring-blue-100 text-gray-800"
-                  />
-                </div>
+              </div>
+
+              <div>
+                <label className="block text-2xs font-bold text-gray-600 uppercase tracking-wider mb-1">Alergias</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Nenhuma, Dipirona..."
+                  value={editForm.allergies}
+                  onChange={(e) => setEditForm({ ...editForm, allergies: e.target.value })}
+                  className="w-full p-2.5 border border-gray-200 rounded-xl text-sm focus:ring-1 focus:ring-blue-100 text-gray-800"
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -754,6 +1026,29 @@ export default function App() {
                     placeholder="Ex: Symbicort, Sertralina..."
                     value={editForm.medications}
                     onChange={(e) => setEditForm({ ...editForm, medications: e.target.value })}
+                    className="w-full p-2.5 border border-gray-200 rounded-xl text-sm focus:ring-1 focus:ring-blue-100 text-gray-800"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-2xs font-bold text-gray-600 uppercase tracking-wider mb-1">Atividade Física Regular</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Musculação 3x/semana, Corrida, Sedentário..."
+                    value={editForm.physicalActivity}
+                    onChange={(e) => setEditForm({ ...editForm, physicalActivity: e.target.value })}
+                    className="w-full p-2.5 border border-gray-200 rounded-xl text-sm focus:ring-1 focus:ring-blue-100 text-gray-800"
+                  />
+                </div>
+                <div>
+                  <label className="block text-2xs font-bold text-gray-600 uppercase tracking-wider mb-1">Antecedentes Familiares</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Hipertensão (pai), Diabetes (avó)..."
+                    value={editForm.familyHistory}
+                    onChange={(e) => setEditForm({ ...editForm, familyHistory: e.target.value })}
                     className="w-full p-2.5 border border-gray-200 rounded-xl text-sm focus:ring-1 focus:ring-blue-100 text-gray-800"
                   />
                 </div>
