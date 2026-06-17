@@ -578,6 +578,19 @@ export default function MemberProfile({
   const [editingHospitalization, setEditingHospitalization] = useState<Consultation | null>(null);
   const [editHospitalForm, setEditHospitalForm] = useState({ date: "", dischargeDate: "", facility: "", reason: "", diagnosis: "", doctor: "", prescription: "", notes: "" });
 
+  // Table inline editing and quick add states
+  const [inlineEditingId, setInlineEditingId] = useState<string | null>(null);
+  const [inlineEditForm, setInlineEditForm] = useState({ date: "", weight: "", sys: "", dia: "", glucose: "", hr: "", height: "" });
+  const [quickAddForm, setQuickAddForm] = useState({
+    date: new Date().toISOString().split("T")[0],
+    weight: "",
+    sys: "",
+    dia: "",
+    glucose: "",
+    hr: "",
+    height: ""
+  });
+
   // Form Fields
   const [vitalForm, setVitalForm] = useState({ date: new Date().toISOString().split("T")[0], weight: "", sys: "", dia: "", glucose: "", hr: "", height: "" });
   const [consultForm, setConsultForm] = useState({ date: new Date().toISOString().split("T")[0], specialty: "", doctor: "", facility: "", reason: "", prescription: "", notes: "" });
@@ -1380,6 +1393,75 @@ export default function MemberProfile({
       onDataChanged();
     } catch (err) {
       setErrorText("Erro ao salvar as alterações dos sinais vitais.");
+    }
+  };
+
+  const handleStartInlineEdit = (vital: HealthVital) => {
+    setInlineEditingId(vital.id);
+    setInlineEditForm({
+      date: vital.date,
+      weight: vital.weight !== undefined ? vital.weight.toString() : "",
+      sys: vital.systolicBP !== undefined ? vital.systolicBP.toString() : "",
+      dia: vital.diastolicBP !== undefined ? vital.diastolicBP.toString() : "",
+      glucose: vital.bloodGlucose !== undefined ? vital.bloodGlucose.toString() : "",
+      hr: vital.heartRate !== undefined ? vital.heartRate.toString() : "",
+      height: vital.height !== undefined ? vital.height.toString() : ""
+    });
+  };
+
+  const handleSaveInlineEdit = async (id: string) => {
+    try {
+      const { dbService } = await import("../lib/db.ts");
+      const updated: HealthVital = {
+        id,
+        memberId: member.id,
+        date: inlineEditForm.date,
+        weight: inlineEditForm.weight ? parseFloat(inlineEditForm.weight) : undefined,
+        systolicBP: inlineEditForm.sys ? parseInt(inlineEditForm.sys) : undefined,
+        diastolicBP: inlineEditForm.dia ? parseInt(inlineEditForm.dia) : undefined,
+        bloodGlucose: inlineEditForm.glucose ? parseInt(inlineEditForm.glucose) : undefined,
+        heartRate: inlineEditForm.hr ? parseInt(inlineEditForm.hr) : undefined,
+        height: inlineEditForm.height ? parseFloat(inlineEditForm.height) : undefined,
+      };
+
+      await dbService.saveVital(updated);
+      setInlineEditingId(null);
+      onDataChanged();
+    } catch (err) {
+      setErrorText("Erro ao salvar as alterações dos sinais vitais.");
+    }
+  };
+
+  const handleQuickAddVital = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    try {
+      const { dbService } = await import("../lib/db.ts");
+      const vital: HealthVital = {
+        id: `vital_${Date.now()}`,
+        memberId: member.id,
+        date: quickAddForm.date || new Date().toISOString().split("T")[0],
+        weight: quickAddForm.weight ? parseFloat(quickAddForm.weight) : undefined,
+        systolicBP: quickAddForm.sys ? parseInt(quickAddForm.sys) : undefined,
+        diastolicBP: quickAddForm.dia ? parseInt(quickAddForm.dia) : undefined,
+        bloodGlucose: quickAddForm.glucose ? parseInt(quickAddForm.glucose) : undefined,
+        heartRate: quickAddForm.hr ? parseInt(quickAddForm.hr) : undefined,
+        height: quickAddForm.height ? parseFloat(quickAddForm.height) : undefined,
+      };
+
+      await dbService.saveVital(vital);
+      // Reset forms but preserve date in case they want to add multiple parameters on the same date
+      setQuickAddForm({
+        date: quickAddForm.date,
+        weight: "",
+        sys: "",
+        dia: "",
+        glucose: "",
+        hr: "",
+        height: ""
+      });
+      onDataChanged();
+    } catch (err) {
+      setErrorText("Erro ao adicionar sinal vital.");
     }
   };
 
@@ -2462,7 +2544,7 @@ export default function MemberProfile({
             {/* Recent Vitals list */}
             {memberVitals.length > 0 && (
               <div className="mt-4">
-                <h4 className="font-extrabold text-gray-800 text-xs uppercase tracking-wider mb-3">História Recente de Sinais Clinicos</h4>
+                <h4 className="font-extrabold text-gray-800 text-xs uppercase tracking-wider mb-3">História Recente de Sinais Clínicos</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {memberVitals.slice(0, 3).map((vital) => (
                     <div key={vital.id} className="p-3.5 border border-gray-100 bg-gray-50/30 rounded-xl relative">
@@ -2489,6 +2571,243 @@ export default function MemberProfile({
                 </div>
               </div>
             )}
+
+            {/* Tabela de Parâmetros Clínicos - Preenchimento Rápido Integrado */}
+            <div className="mt-6 bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
+              <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/50 text-left">
+                <div>
+                  <h4 className="font-extrabold text-slate-800 text-sm">Tabela Geral de Parâmetros Clínicos</h4>
+                  <p className="text-xs text-slate-500">Insira novos valores diretamente na primeira linha ou edite as aferições clicando em "Editar"</p>
+                </div>
+                <div className="text-[10px] text-emerald-800 bg-emerald-50 font-bold px-2.5 py-1 rounded-lg border border-emerald-100 self-start sm:self-auto select-none">
+                  💡 Preenchimento rápido habilitado na linha verde!
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-gray-600 border-collapse">
+                  <thead className="bg-slate-100/65 font-bold text-gray-700 border-b border-gray-200">
+                    <tr>
+                      <th className="p-2.5 whitespace-nowrap min-w-[130px]">Data</th>
+                      <th className="p-2.5 whitespace-nowrap min-w-[80px]">Peso (kg)</th>
+                      <th className="p-2.5 whitespace-nowrap min-w-[80px]">Altura (cm)</th>
+                      <th className="p-2.5 whitespace-nowrap min-w-[90px]">P.A. Sis (máx)</th>
+                      <th className="p-2.5 whitespace-nowrap min-w-[90px]">P.A. Dia (mín)</th>
+                      <th className="p-2.5 whitespace-nowrap min-w-[90px]">Batimentos (bpm)</th>
+                      <th className="p-2.5 whitespace-nowrap min-w-[95px]">Glicemia (mg/dL)</th>
+                      <th className="p-2.5 whitespace-nowrap text-center min-w-[125px]">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Row for Quick-Fill Add */}
+                    <tr className="bg-emerald-50/20 border-b border-emerald-100/60 hover:bg-emerald-50/40 transition-colors">
+                      <td className="p-1.5">
+                        <input
+                          type="date"
+                          value={quickAddForm.date}
+                          onChange={(e) => setQuickAddForm({ ...quickAddForm, date: e.target.value })}
+                          className="w-full p-1 bg-white border border-emerald-200 rounded-lg text-2xs focus:outline-hidden focus:ring-1 focus:ring-emerald-400 font-semibold text-gray-800"
+                        />
+                      </td>
+                      <td className="p-1.5">
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Peso"
+                          value={quickAddForm.weight}
+                          onChange={(e) => setQuickAddForm({ ...quickAddForm, weight: e.target.value })}
+                          className="w-full p-1 bg-white border border-emerald-200 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-emerald-400 font-medium"
+                        />
+                      </td>
+                      <td className="p-1.5">
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="Altura"
+                          value={quickAddForm.height}
+                          onChange={(e) => setQuickAddForm({ ...quickAddForm, height: e.target.value })}
+                          className="w-full p-1 bg-white border border-emerald-200 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-emerald-400 font-medium"
+                        />
+                      </td>
+                      <td className="p-1.5">
+                        <input
+                          type="number"
+                          placeholder="Sist"
+                          value={quickAddForm.sys}
+                          onChange={(e) => setQuickAddForm({ ...quickAddForm, sys: e.target.value })}
+                          className="w-full p-1 bg-white border border-emerald-200 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-emerald-400 font-medium"
+                        />
+                      </td>
+                      <td className="p-1.5">
+                        <input
+                          type="number"
+                          placeholder="Diast"
+                          value={quickAddForm.dia}
+                          onChange={(e) => setQuickAddForm({ ...quickAddForm, dia: e.target.value })}
+                          className="w-full p-1 bg-white border border-emerald-200 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-emerald-400 font-medium"
+                        />
+                      </td>
+                      <td className="p-1.5">
+                        <input
+                          type="number"
+                          placeholder="bpm"
+                          value={quickAddForm.hr}
+                          onChange={(e) => setQuickAddForm({ ...quickAddForm, hr: e.target.value })}
+                          className="w-full p-1 bg-white border border-emerald-200 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-emerald-400 font-medium"
+                        />
+                      </td>
+                      <td className="p-1.5">
+                        <input
+                          type="number"
+                          placeholder="Glic"
+                          value={quickAddForm.glucose}
+                          onChange={(e) => setQuickAddForm({ ...quickAddForm, glucose: e.target.value })}
+                          className="w-full p-1 bg-white border border-emerald-200 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-emerald-400 font-medium"
+                        />
+                      </td>
+                      <td className="p-1.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleQuickAddVital()}
+                          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold rounded-lg inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs active:scale-95"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>Adicionar</span>
+                        </button>
+                      </td>
+                    </tr>
+
+                    {/* Vitals rows */}
+                    {memberVitals.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="p-8 text-center text-gray-400 font-medium bg-slate-50/50">
+                          Nenhum sinal vital registrado para este familiar. Preencha a primeira linha verde acima para começar!
+                        </td>
+                      </tr>
+                    ) : (
+                      memberVitals.map((vital) => {
+                        const isEditing = inlineEditingId === vital.id;
+                        return (
+                          <tr key={vital.id} className="border-b border-gray-100 hover:bg-slate-50/30 transition-colors">
+                            {isEditing ? (
+                              <>
+                                <td className="p-1.5">
+                                  <input
+                                    type="date"
+                                    value={inlineEditForm.date}
+                                    onChange={(e) => setInlineEditForm({ ...inlineEditForm, date: e.target.value })}
+                                    className="w-full p-1 bg-white border border-blue-300 rounded-lg text-2xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                  />
+                                </td>
+                                <td className="p-1.5">
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={inlineEditForm.weight}
+                                    onChange={(e) => setInlineEditForm({ ...inlineEditForm, weight: e.target.value })}
+                                    className="w-full p-1 bg-white border border-blue-300 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
+                                  />
+                                </td>
+                                <td className="p-1.5">
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    value={inlineEditForm.height}
+                                    onChange={(e) => setInlineEditForm({ ...inlineEditForm, height: e.target.value })}
+                                    className="w-full p-1 bg-white border border-blue-300 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
+                                  />
+                                </td>
+                                <td className="p-1.5">
+                                  <input
+                                    type="number"
+                                    value={inlineEditForm.sys}
+                                    onChange={(e) => setInlineEditForm({ ...inlineEditForm, sys: e.target.value })}
+                                    className="w-full p-1 bg-white border border-blue-300 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
+                                  />
+                                </td>
+                                <td className="p-1.5">
+                                  <input
+                                    type="number"
+                                    value={inlineEditForm.dia}
+                                    onChange={(e) => setInlineEditForm({ ...inlineEditForm, dia: e.target.value })}
+                                    className="w-full p-1 bg-white border border-blue-300 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
+                                  />
+                                </td>
+                                <td className="p-1.5">
+                                  <input
+                                    type="number"
+                                    value={inlineEditForm.hr}
+                                    onChange={(e) => setInlineEditForm({ ...inlineEditForm, hr: e.target.value })}
+                                    className="w-full p-1 bg-white border border-blue-300 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
+                                  />
+                                </td>
+                                <td className="p-1.5">
+                                  <input
+                                    type="number"
+                                    value={inlineEditForm.glucose}
+                                    onChange={(e) => setInlineEditForm({ ...inlineEditForm, glucose: e.target.value })}
+                                    className="w-full p-1 bg-white border border-blue-300 rounded-lg text-2xs text-center focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
+                                  />
+                                </td>
+                                <td className="p-1.5 text-center flex items-center justify-center gap-1 min-h-[40px]">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveInlineEdit(vital.id)}
+                                    className="p-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md cursor-pointer inline-flex items-center justify-center shadow-2xs"
+                                    title="Salvar"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setInlineEditingId(null)}
+                                    className="p-1 bg-slate-100 hover:bg-slate-200 text-gray-600 rounded-md cursor-pointer inline-flex items-center justify-center"
+                                    title="Cancelar"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="p-2.5 font-semibold text-slate-800">{formatDate(vital.date)}</td>
+                                <td className="p-2.5 text-slate-700 font-medium">{vital.weight ? `${vital.weight} kg` : "-"}</td>
+                                <td className="p-2.5 text-slate-700 font-medium">{vital.height ? `${vital.height} cm` : "-"}</td>
+                                <td className="p-2.5 text-slate-700 font-medium">{vital.systolicBP ? `${vital.systolicBP} mmHg` : "-"}</td>
+                                <td className="p-2.5 text-slate-700 font-medium">{vital.diastolicBP ? `${vital.diastolicBP} mmHg` : "-"}</td>
+                                <td className="p-2.5 text-slate-700 font-medium font-mono">{vital.heartRate ? `${vital.heartRate} bpm` : "-"}</td>
+                                <td className="p-2.5 text-slate-700 font-medium font-mono">{vital.bloodGlucose ? `${vital.bloodGlucose} mg/dL` : "-"}</td>
+                                <td className="p-2 text-center flex items-center justify-center gap-0.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartInlineEdit(vital)}
+                                    className="p-1 text-blue-600 hover:bg-blue-50 rounded-md cursor-pointer transition-colors"
+                                    title="Editar linha"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setItemToDelete({ storeName: "vitals", id: vital.id });
+                                      setConfirmDeleteId(vital.id);
+                                    }}
+                                    className="p-1 text-rose-600 hover:bg-rose-50 rounded-md cursor-pointer transition-colors"
+                                    title="Excluir medição"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </>
+                            )}
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
 
