@@ -530,8 +530,8 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-3xl overflow-hidden shadow-xl p-8 border border-slate-150 text-center flex flex-col items-center animate-in fade-in zoom-in-95 duration-200">
-          <div className="relative p-4 bg-gradient-to-tr from-blue-50 to-indigo-50 text-blue-600 rounded-2xl mb-5 flex items-center justify-center shadow-inner">
-            <HeartPulse className="w-10 h-10 text-indigo-600 animate-pulse" />
+          <div className="relative mb-5 flex items-center justify-center p-1 bg-slate-50 border border-slate-100 rounded-3xl overflow-hidden w-28 h-28 shadow-sm">
+            <img src="/icon-512.jpg" alt="Familink Logo" referrerPolicy="no-referrer" className="w-full h-full object-cover rounded-2xl" />
           </div>
           
           <h2 className="text-2xl font-black text-gray-900 leading-tight tracking-tight">
@@ -573,10 +573,10 @@ export default function App() {
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
             <div className="relative flex items-center justify-center shrink-0">
               {/* Outer soft glowing background ring */}
-              <div className="absolute inset-0 bg-blue-600/10 rounded-2xl scale-125 blur-xs animate-pulse duration-3000" />
-              {/* Inner gradient container */}
-              <div className="relative p-1.5 sm:p-2 bg-gradient-to-tr from-blue-600 via-indigo-600 to-violet-600 text-white rounded-xl shadow-md border border-white/10 flex items-center justify-center">
-                <HeartPulse className="w-4 h-4 sm:w-5 sm:h-5 text-white/95 stroke-[2.2]" />
+              <div className="absolute inset-0 bg-blue-600/10 rounded-2xl scale-110 blur-xs animate-pulse duration-3000" />
+              {/* Inner container */}
+              <div className="relative p-0.5 bg-slate-50 border border-slate-150 rounded-xl overflow-hidden w-9.5 h-9.5 sm:w-11 sm:h-11 flex items-center justify-center shadow-xs">
+                <img src="/icon-512.jpg" alt="Familink Logo" referrerPolicy="no-referrer" className="w-full h-full object-cover rounded-lg" />
                 {/* Embedded dynamic link/heart sub-dot badge */}
                 <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
