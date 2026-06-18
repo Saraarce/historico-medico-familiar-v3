@@ -1,5 +1,68 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
+async function generateWithRetry(
+  ai: GoogleGenAI,
+  options: {
+    contents: any;
+    config: any;
+  }
+) {
+  const models = [
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2.5-pro"
+  ];
+  let lastError: any = null;
+
+  for (const model of models) {
+    let attempts = 3;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        console.log(`[Gemini Scan] Tentativa ${attempt} de consultar o modelo "${model}"...`);
+        const response = await ai.models.generateContent({
+          model,
+          contents: options.contents,
+          config: options.config,
+        });
+        if (response && response.text) {
+          console.log(`[Gemini Scan] Sucesso com o modelo "${model}" na tentativa ${attempt}!`);
+          return response;
+        }
+        throw new Error("O modelo respondeu com conteúdo vazio.");
+      } catch (err: any) {
+        lastError = err;
+        const errMsg = String(err.message || err);
+        const isTransient =
+          errMsg.includes("503") ||
+          errMsg.includes("UNAVAILABLE") ||
+          errMsg.includes("demand") ||
+          errMsg.includes("temporary") ||
+          errMsg.includes("limit") ||
+          errMsg.includes("exhausted") ||
+          errMsg.includes("429") ||
+          errMsg.includes("ResourceExhausted") ||
+          errMsg.includes("rate limit") ||
+          errMsg.includes("overloaded");
+
+        if (isTransient) {
+          console.warn(`[Gemini Scan] Modelo "${model}" indisponível temporariamente na tentativa ${attempt}. Erro: ${errMsg}`);
+          if (attempt < attempts) {
+            const delay = attempt * 1500; // 1500ms, 3000ms...
+            console.log(`[Gemini Scan] Aguardando ${delay}ms antes da próxima tentativa...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        } else {
+          console.error(`[Gemini Scan] Erro não-passível de retry ou fatal com o modelo "${model}":`, errMsg);
+          break; // Break attempt loop to proceed to the next model
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error("Todos os modelos Gemini alternativos falharam ao responder.");
+}
+
 export default async function handler(req: any, res: any) {
   // Only allow POST requests for this endpoint
   if (req.method !== "POST") {
@@ -41,54 +104,60 @@ export default async function handler(req: any, res: any) {
 
     const prompt = `Analise esta imagem ou documento PDF de laudo médico, exame clínico, receita ou atestado. Extraia os detalhes clínicos relevantes em português e organize-os estruturadamente com base nos campos solicitados. Se algum campo original não estiver definido no documento, retorne uma string vazia ou use sua melhor inferência sensata de acordo com o contexto do laudo.`;
 
-    console.log(`[Gemini Scan] Solicitando processamento multimodal no modelo "gemini-3.5-flash".`);
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: [
-        {
-          inlineData: {
-            data: cleanBase64,
-            mimeType: finalMimeType,
-          },
-        },
-        {
-          text: prompt,
-        },
-      ],
-      config: {
-        systemInstruction: "Você é um assistente médico especialista em transcrição e digitalização de prontuários. Seu trabalho é extrair de forma precisa e confidencial informações de exames, receitas ou atestados enviados por imagem.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: {
-              type: Type.STRING,
-              description: "O nome legível ou tipo do exame/receita/documento, por exemplo: 'Hemograma Completo', 'Receita de Amoxicilina', 'Ultrassonografia Abdominal'.",
-            },
-            date: {
-              type: Type.STRING,
-              description: "Data de realização ou emissão no formato DD/MM/AAAA se especificada na imagem. Se não encontrar, tente deduzir ou deixe vazio.",
-            },
-            doctor: {
-              type: Type.STRING,
-              description: "Nome do médico, pediatra ou profissional de saúde responsável, se disponível.",
-            },
-            facility: {
-              type: Type.STRING,
-              description: "Clínica, hospital ou laboratório onde foi realizado (ex: 'Sabin', 'Fleury', 'Hospital Municipal').",
-            },
-            observations: {
-              type: Type.STRING,
-              description: "Resumo interpretativo sucinto dos resultados relevantes, values de referência ou dosagens prescritas (máximo de 2 parágrafos).",
-            },
-            category: {
-              type: Type.STRING,
-              description: "Uma única palavra sugerindo a especialidade médica conveniente, ex: 'Cardiologia', 'Pediatria', 'Clínico Geral', 'Ginecologia', 'Ortopedia', 'Dermatologia', 'Outros'.",
-            },
-          },
-          required: ["title", "date", "doctor", "facility", "observations", "category"],
+    console.log(`[Gemini Scan] Solicitando processamento multimodal no modelo "gemini-2.5-flash".`);
+    
+    const contents = [
+      {
+        inlineData: {
+          data: cleanBase64,
+          mimeType: finalMimeType,
         },
       },
+      {
+        text: prompt,
+      },
+    ];
+
+    const configObj = {
+      systemInstruction: "Você é um assistente médico especialista em transcrição e digitalização de prontuários. Seu trabalho é extrair de forma precisa e confidencial informações de exames, receitas ou atestados enviados por imagem.",
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          title: {
+            type: Type.STRING,
+            description: "O nome legível ou tipo do exame/receita/documento, por exemplo: 'Hemograma Completo', 'Receita de Amoxicilina', 'Ultrassonografia Abdominal'.",
+          },
+          date: {
+            type: Type.STRING,
+            description: "Data de realização ou emissão no formato DD/MM/AAAA se especificada na imagem. Se não encontrar, tente deduzir ou deixe vazio.",
+          },
+          doctor: {
+            type: Type.STRING,
+            description: "Nome do médico, pediatra ou profissional de saúde responsável, se disponível.",
+          },
+          facility: {
+            type: Type.STRING,
+            description: "Clínica, hospital ou laboratório onde foi realizado (ex: 'Sabin', 'Fleury', 'Hospital Municipal').",
+          },
+          observations: {
+            type: Type.STRING,
+            description: "Resumo interpretativo sucinto dos resultados relevantes, values de referência ou dosagens prescritas (máximo de 2 parágrafos).",
+          },
+          category: {
+            type: Type.STRING,
+            description: "Uma única palavra sugerindo a especialidade médica conveniente, ex: 'Cardiologia', 'Pediatria', 'Clínico Geral', 'Ginecologia', 'Ortopedia', 'Dermatologia', 'Outros'.",
+          },
+        },
+        required: ["title", "date", "doctor", "facility", "observations", "category"],
+      },
+    };
+
+    console.log(`[Gemini Scan] Solicitando processamento multimodal com suporte a retry automático.`);
+
+    const response = await generateWithRetry(ai, {
+      contents,
+      config: configObj,
     });
 
     let resultText = response.text;

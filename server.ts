@@ -39,6 +39,12 @@ async function startServer() {
     res.json({ status: "ok", apiKeyConfigured: !!process.env.GEMINI_API_KEY });
   });
 
+  // Diagnostic endpoint for Gemini configuration (Vercel parity)
+  app.get("/api/gemini-status", (req, res) => {
+    const isConfigured = typeof process.env.GEMINI_API_KEY === "string" && process.env.GEMINI_API_KEY.trim().length > 0;
+    res.json({ geminiConfigured: isConfigured });
+  });
+
   // Endpoint to generate an AI summary for a family member
   app.post("/api/generate-summary", async (req, res) => {
     try {

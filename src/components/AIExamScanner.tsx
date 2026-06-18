@@ -2,6 +2,64 @@ import React, { useState, useRef, useEffect } from "react";
 import { Camera, Upload, Sparkles, BrainCircuit, RefreshCw, Save, CheckCircle, AlertTriangle, FileText, Cloud, Search, X } from "lucide-react";
 import { FamilyMember, Exam } from "../types";
 
+/**
+ * Utility to resize/compress an image on client-side to ensure it is below 1MB or 2MB,
+ * preventing 'Request Entity Too Large' errors from proxies or slow servers.
+ */
+const compressImage = (file: File, maxWidth = 1200, maxHeight = 1200): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    // If NOT an image (e.g. PDF), read normally as base64
+    if (!file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (err) => reject(err);
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        // Calculate new dims
+        let { width, height } = img;
+        if (width > maxWidth || height > maxHeight) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        // Draw to canvas
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          // Fallback to original read if canvas not supported
+          resolve(event.target?.result as string);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        // Export as JPEG with 0.8 quality
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+        resolve(dataUrl);
+      };
+      img.onerror = () => {
+        // Fallback to original read on img error
+        resolve(event.target?.result as string);
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+};
+
 interface AIExamScannerProps {
   members: FamilyMember[];
   onExamSaved: () => void;
@@ -155,16 +213,26 @@ export default function AIExamScanner({ members, onExamSaved }: AIExamScannerPro
       const blob = await res.blob();
       const virtualFile = new File([blob], file.name, { type: file.mimeType });
       
-      const reader = new FileReader();
-      reader.onloadend = () => {
+      try {
+        const compressedBase64 = await compressImage(virtualFile);
         if (isMounted.current) {
-          setImagePreview(reader.result as string);
+          setImagePreview(compressedBase64);
           setSelectedFile(virtualFile);
           setScanResult(null);
           setIsDriveModalOpen(false);
         }
-      };
-      reader.readAsDataURL(blob);
+      } catch (err: any) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (isMounted.current) {
+            setImagePreview(reader.result as string);
+            setSelectedFile(virtualFile);
+            setScanResult(null);
+            setIsDriveModalOpen(false);
+          }
+        };
+        reader.readAsDataURL(blob);
+      }
     } catch (err: any) {
       console.error(err);
       if (isMounted.current) {
@@ -181,17 +249,24 @@ export default function AIExamScanner({ members, onExamSaved }: AIExamScannerPro
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
+      try {
+        const compressedBase64 = await compressImage(file);
+        setImagePreview(compressedBase64);
         setScanResult(null); // Clear previous scan
         setFeedback(null);
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setImagePreview(reader.result as string);
+          setScanResult(null);
+          setFeedback(null);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -199,18 +274,25 @@ export default function AIExamScanner({ members, onExamSaved }: AIExamScannerPro
     e.preventDefault();
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (file && (file.type.startsWith("image/") || file.type === "application/pdf")) {
       setSelectedFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
+      try {
+        const compressedBase64 = await compressImage(file);
+        setImagePreview(compressedBase64);
         setScanResult(null);
         setFeedback(null);
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setImagePreview(reader.result as string);
+          setScanResult(null);
+          setFeedback(null);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -237,7 +319,18 @@ export default function AIExamScanner({ members, onExamSaved }: AIExamScannerPro
         }),
       });
 
-      const data = await response.json();
+      let data: any = null;
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        if (response.status === 413 || text.includes("PayloadTooLargeError") || text.includes("too large")) {
+          throw new Error("O arquivo/imagem inserido é grande demais para processamento com as limitações de banda atuais. Por favor envie uma captura em resolução reduzida.");
+        }
+        throw new Error(`Erro do servidor (${response.status}): ${text.substring(0, 120)}`);
+      }
+
       if (!response.ok) {
         throw new Error(data.error ? (data.details ? `${data.error} (${data.details})` : data.error) : "Erro desconhecido ao escanear exame.");
       }

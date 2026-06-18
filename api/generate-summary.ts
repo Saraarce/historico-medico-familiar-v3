@@ -1,5 +1,68 @@
 import { GoogleGenAI } from "@google/genai";
 
+async function generateWithRetry(
+  ai: GoogleGenAI,
+  options: {
+    contents: any;
+    config: any;
+  }
+) {
+  const models = [
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2.5-pro"
+  ];
+  let lastError: any = null;
+
+  for (const model of models) {
+    let attempts = 3;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        console.log(`[Gemini API] Tentativa ${attempt} de consultar o modelo "${model}"...`);
+        const response = await ai.models.generateContent({
+          model,
+          contents: options.contents,
+          config: options.config,
+        });
+        if (response && response.text) {
+          console.log(`[Gemini API] Sucesso com o modelo "${model}" na tentativa ${attempt}!`);
+          return response;
+        }
+        throw new Error("O modelo respondeu com conteúdo vazio.");
+      } catch (err: any) {
+        lastError = err;
+        const errMsg = String(err.message || err);
+        const isTransient =
+          errMsg.includes("503") ||
+          errMsg.includes("UNAVAILABLE") ||
+          errMsg.includes("demand") ||
+          errMsg.includes("temporary") ||
+          errMsg.includes("limit") ||
+          errMsg.includes("exhausted") ||
+          errMsg.includes("429") ||
+          errMsg.includes("ResourceExhausted") ||
+          errMsg.includes("rate limit") ||
+          errMsg.includes("overloaded");
+
+        if (isTransient) {
+          console.warn(`[Gemini API] Modelo "${model}" indisponível temporariamente na tentativa ${attempt}. Erro: ${errMsg}`);
+          if (attempt < attempts) {
+            const delay = attempt * 1500; // 1500ms, 3000ms...
+            console.log(`[Gemini API] Aguardando ${delay}ms antes da próxima tentativa...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        } else {
+          console.error(`[Gemini API] Erro não-passível de retry ou fatal com o modelo "${model}":`, errMsg);
+          break; // Break attempt loop to proceed to the next model
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error("Todos os modelos Gemini alternativos falharam ao responder.");
+}
+
 export default async function handler(req: any, res: any) {
   // Only allow POST requests for this endpoint
   if (req.method !== "POST") {
@@ -73,14 +136,15 @@ Instruções Clínicas para o Resumo:
    - **Conduta Sugerida**: De 2 a 3 diretrizes práticas diretas para acompanhamento (ex: exames de controle, reavaliação).
 5. Seja extremamente direto, conciso e use terminologia de prontuário eletrónico de alta fidelidade de forma a ocupar menos de 900 caracteres no total. Escreva estritamente em português (do Brasil).`;
 
-    console.log(`[Gemini API] Solicitando geração de conteúdo para o modelo "gemini-3.5-flash". Tamanho estimado do prompt: ${prompt.length} caracteres.`);
+    console.log(`[Gemini API] Solicitando geração de conteúdo com suporte a retry automático. Tamanho estimado do prompt: ${prompt.length} caracteres.`);
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const configObj = {
+      systemInstruction: "Você é um copiloto médico virtual altamente técnico e preciso. Suas avaliações são formuladas estritamente sob o tom de uma discussão de caso clínico de médico para médico, focadas em extrema brevidade, terminologia do prontuário oficial e alto pragmatismo clínico. O total de caracteres combinados de todas as seções geradas jamais deve exceder 900 caracteres.",
+    };
+
+    const response = await generateWithRetry(ai, {
       contents: prompt,
-      config: {
-        systemInstruction: "Você é um copiloto médico virtual altamente técnico e preciso. Suas avaliações são formuladas estritamente sob o tom de uma discussão de caso clínico de médico para médico, focadas em extrema brevidade, terminologia do prontuário oficial e alto pragmatismo clínico. O total de caracteres combinados de todas as seções geradas jamais deve exceder 900 caracteres.",
-      }
+      config: configObj,
     });
 
     const summaryText = response.text;

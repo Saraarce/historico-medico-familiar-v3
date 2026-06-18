@@ -641,7 +641,15 @@ export default function MemberProfile({
         }),
       });
 
-      const data = await response.json();
+      let data: any = null;
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(`Erro do servidor ao processar o resumo clínico (${response.status}): ${text.substring(0, 120)}`);
+      }
+
       if (!response.ok) {
         throw new Error(data.error ? (data.details ? `${data.error} (${data.details})` : data.error) : "Falha ao gerar o resumo.");
       }

@@ -123,7 +123,7 @@ export const dbService = {
   // Seed the system with the spreadsheet dataset
   seedNewData(): Promise<FamilyMember[]> {
     const defaultMembers: FamilyMember[] = [
-      { id: "mae_primary", name: "", relationship: "Mãe", birthDate: "", bloodType: "", allergies: "", avatarColor: "bg-purple-500", comorbidities: "", medications: "" }
+      { id: "eu_primary", name: "", relationship: "EU", birthDate: "", bloodType: "", allergies: "", avatarColor: "bg-purple-500", comorbidities: "", medications: "" }
     ];
 
     const defaultConsultations: Consultation[] = [];
@@ -140,6 +140,7 @@ export const dbService = {
       ...defaultVaccines.map((v) => this.saveVaccine(v))
     ]).then(() => {
       if (typeof window !== "undefined") {
+        window.localStorage.setItem("has_seeded_v3", "true");
         window.localStorage.setItem("has_seeded_v2", "true");
       }
       return defaultMembers;
@@ -147,7 +148,7 @@ export const dbService = {
   },
 
   getMembers(): Promise<FamilyMember[]> {
-    return runTx<FamilyMember[]>("members", "readonly", (store) => store.getAll()).then((list) => {
+    return runTx<FamilyMember[]>("members", "readonly", (store) => store.getAll()).then(async (list) => {
       const hasOldData = list.some(
         (m) =>
           m.id === "member_1" ||
@@ -157,13 +158,75 @@ export const dbService = {
           m.id === "matheus" ||
           m.id === "samuel"
       );
-      const isSeededV2 = typeof window !== "undefined" && window.localStorage.getItem("has_seeded_v2") === "true";
+      const isSeededV3 = typeof window !== "undefined" && window.localStorage.getItem("has_seeded_v3") === "true";
 
-      if (hasOldData || !isSeededV2) {
+      if (hasOldData) {
         return this.clearAllData().then(() => this.seedNewData());
       }
+
+      // If already seeded V2 but not V3, migrate "mae_primary" to "eu_primary" safely
+      if (!isSeededV3 && typeof window !== "undefined") {
+        const hasV2 = window.localStorage.getItem("has_seeded_v2") === "true";
+        if (hasV2) {
+          try {
+            const maeIndex = list.findIndex((m) => m.id === "mae_primary");
+            if (maeIndex !== -1) {
+              const maeMember = list[maeIndex];
+              const euMember: FamilyMember = {
+                ...maeMember,
+                id: "eu_primary",
+                relationship: maeMember.relationship === "Mãe" ? "EU" : maeMember.relationship,
+              };
+
+              // 1. Save new "eu_primary"
+              await this.saveMember(euMember);
+
+              // 2. Delete old "mae_primary"
+              await this.deleteMember("mae_primary");
+
+              // 3. Migrate other data linked to mae_primary to eu_primary
+              const consults = await this.getConsultations();
+              for (const c of consults) {
+                if (c.memberId === "mae_primary") {
+                  await this.saveConsultation({ ...c, memberId: "eu_primary" });
+                }
+              }
+
+              const exams = await this.getExams();
+              for (const e of exams) {
+                if (e.memberId === "mae_primary") {
+                  await this.saveExam({ ...e, memberId: "eu_primary" });
+                }
+              }
+
+              const vitals = await this.getVitals();
+              for (const v of vitals) {
+                if (v.memberId === "mae_primary") {
+                  await this.saveVital({ ...v, memberId: "eu_primary" });
+                }
+              }
+
+              const vaccines = await this.getVaccines();
+              for (const v of vaccines) {
+                if (v.memberId === "mae_primary") {
+                  await this.saveVaccine({ ...v, memberId: "eu_primary" });
+                }
+              }
+
+              // Update in-memory returned list
+              list.splice(maeIndex, 1, euMember);
+            }
+            window.localStorage.setItem("has_seeded_v3", "true");
+          } catch (err) {
+            console.error("Erro durante a migração para a V3:", err);
+          }
+        } else {
+          return this.clearAllData().then(() => this.seedNewData());
+        }
+      }
+
       if (list.length === 0) {
-        if (typeof window !== "undefined" && window.localStorage.getItem("has_seeded_v2") === "true") {
+        if (typeof window !== "undefined" && window.localStorage.getItem("has_seeded_v3") === "true") {
           return [];
         }
         return this.seedNewData();
