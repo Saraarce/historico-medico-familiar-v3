@@ -629,15 +629,22 @@ export default function MemberProfile({
     setGenerateLoading(true);
     setErrorText(null);
     try {
+      // Exclude large data URI fields (like photoUrl and avatarUrl) to prevent 413 Payload Too Large / FUNCTION_PAYLOAD_TOO_LARGE errors
+      const sanitizedExams = memberExams.map(({ photoUrl, ...rest }) => rest);
+      const sanitizedMember = { ...member };
+      if (sanitizedMember.avatarUrl) {
+        delete sanitizedMember.avatarUrl;
+      }
+
       const response = await fetch("/api/generate-summary", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          member,
+          member: sanitizedMember,
           consultations: memberConsultations,
-          exams: memberExams,
+          exams: sanitizedExams,
         }),
       });
 

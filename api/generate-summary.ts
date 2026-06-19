@@ -108,13 +108,35 @@ export default async function handler(req: any, res: any) {
       .map((e: any) => `- Data: ${e.date} | Exame: ${e.title} | Categoria: ${e.category} | Clínica: ${e.facility} | Médico Solicitante: ${e.doctor} | Observações/Resultados: ${e.observations}`)
       .join("\n");
 
+    const today = new Date();
+    const formattedCurrentDate = today.toLocaleDateString("pt-BR");
+    const currentYear = today.getFullYear();
+
+    const getAge = (birthDateStr: string) => {
+      if (!birthDateStr) return null;
+      const birth = new Date(birthDateStr);
+      if (isNaN(birth.getTime())) return null;
+      let age = today.getFullYear() - birth.getFullYear();
+      const m = today.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+        age--;
+      }
+      return age;
+    };
+
+    const patientAge = getAge(member.birthDate);
+    const ageString = patientAge !== null ? `${patientAge} anos` : "Não informada";
+
     const prompt = `Você é um médico especialista sênior em medicina de família e privacidade/comunidade.
-Gere uma Apresentação de Caso Clínico / Resumo Evolutivo condensado e de alta densidade técnica (usando terminologia médica formal, abreviações profissionais aceitas e formato markdown limpo) para o seguinte paciente:
+Gere uma Apresentação de Caso Clínico / Resumo Evolutivo ultracondensado e de alta densidade técnica (usando terminologia médica formal, abreviações profissionais aceitas e formato markdown limpo) para o seguinte paciente:
+
+DATA ATUAL DO SISTEMA (HOJE): ${formattedCurrentDate} (Ano: ${currentYear})
+IMPORTANTE: Considere rigorosamente a data atual acima para referências temporais e evolução clínica. O paciente possui exatamente ${ageString} hoje.
 
 Ficha e Identificação do Paciente:
 - Nome: ${member.name}
 - Parentesco: ${member.relationship}
-- Data de Nascimento: ${member.birthDate}
+- Data de Nascimento: ${member.birthDate} (Idade atual: ${ageString})
 - Grupo Sanguíneo: ${member.bloodType}
 - Alergias Documentadas: ${member.allergies || "Sem registro (Nenhuma)"}
 - Comorbidades diagnosticadas: ${member.comorbidities || "Nenhuma comorbidade registrada"}
@@ -126,20 +148,20 @@ ${formattedConsultations || "Nenhuma consulta registrada até o momento."}
 Histórico de Exames Clínicos e Laudos Recentes:
 ${formattedExams || "Nenhum exame clínico registrado até o momento."}
 
-Instruções Clínicas para o Resumo:
-1. O resumo deve ser puramente técnico, profissional, direto, no modelo de "Passagem de Caso" / "Evolução Médica" de alta eficiência. Use termos como "paciente apresenta histórico de...", "terapêutica contínua sob conformidade...", "sinais ou laudos sugerem...", etc.
-2. Livre-se de qualquer tipo de linguagem acolhedora, calorosa, cordial ou sentimental. O leitor final é um médico que necessita revisar as condições, os exames anexos e as condutas do paciente de forma pragmática e célere no celular.
-3. ATENÇÃO CRÍTICA: NÃO INVENTE NENHUMA INFORMAÇÃO, DIAGNÓSTICO OU TERAPÊUTICA. Baseie-se APENAS nos dados reais fornecidos acima. Se o paciente não possuir comorbidades, alergias, medicações, consultas ou exames nos dados reais acima, relate apenas isso de forma brevosa ou desconsidere, mas nunca deduza de forma fictícia ou inventada qualquer dado médico do paciente.
-4. Estruture em Markdown limpo usando as seguintes seções estritas (O resumo completo DEVE ter no máximo 900 caracteres, seja extremamente conciso e use siglas médicas oficiais como HAS, DM, m.c. etc.):
-   - **Sumário Clínico & Status Atual**: Diagnóstico, esquema terapêutico e status atual do paciente.
-   - **Achados nos Exames/Consultas**: Alterações críticas e pontos de atenção nos exames e consultas recentes.
-   - **Conduta Sugerida**: De 2 a 3 diretrizes práticas diretas para acompanhamento (ex: exames de controle, reavaliação).
-5. Seja extremamente direto, conciso e use terminologia de prontuário eletrónico de alta fidelidade de forma a ocupar menos de 900 caracteres no total. Escreva estritamente em português (do Brasil).`;
+Instruções Clínicas para o Resumo (OBRIGATÓRIO):
+1. O resumo deve ser extremamente curto, resumido, direto e puramente técnico. O TOTAL de caracteres de todas as seções combinadas DEVERÁ ser menor que 500 caracteres.
+2. ZERO EXTRAPOLAÇÃO E ZERO ALUCINAÇÃO: Não deduza, não adivinhe e não assuma novos sintomas, alergias, medicações ou patologias que não constem de forma literal nos dados do paciente acima. Baseie-se APENAS de forma 100% estrita nas informações fornecidas. Se não houver intercorrências registradas, descreva apenas "Paciente hígido" ou "Sem intercorrências documentadas".
+3. Evite qualquer tipo de empatia ou linguagem calorosa. Vá direto ao ponto de forma ultra-concisa.
+4. Estruture em Markdown limpo usando as seguintes seções curtas com siglas médicas oficiais (ex: HAS, DM):
+   - **Sumário Clínico**: Status e histórico real sintetizados.
+   - **Achados**: Pontos críticos reais dos exames ou consultas (se houver).
+   - **Conduta**: Próximos passos declarados textualmente nos dados do paciente (ou apenas "Monitoramento de rotina" se nada constar).`;
 
     console.log(`[Gemini API] Solicitando geração de conteúdo com suporte a retry automático. Tamanho estimado do prompt: ${prompt.length} caracteres.`);
 
     const configObj = {
-      systemInstruction: "Você é um copiloto médico virtual altamente técnico e preciso. Suas avaliações são formuladas estritamente sob o tom de uma discussão de caso clínico de médico para médico, focadas em extrema brevidade, terminologia do prontuário oficial e alto pragmatismo clínico. O total de caracteres combinados de todas as seções geradas jamais deve exceder 900 caracteres.",
+      systemInstruction: "Você é um copiloto médico virtual altamente técnico, focado em extrema brevidade e precisão absoluta de fatos. Você nunca inventa informações e descreve estritamente o que foi computado. Suas avaliações são formuladas sob o tom de uma passagem de caso clínico de médico para médico. O total de caracteres combinados de todas as seções geradas jamais deve exceder 500 caracteres.",
+      temperature: 0.1,
     };
 
     const response = await generateWithRetry(ai, {

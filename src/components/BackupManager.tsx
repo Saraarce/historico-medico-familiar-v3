@@ -175,13 +175,24 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
           type: "success",
           text: `Excelente! O backup "${resultFile.name}" foi salvo com sucesso no Google Drive!`
         });
+        setIsLoading(false);
       }
       await fetchBackupFileInfo(googleToken);
       return;
     } catch (e) {
       console.error(e);
+      if (isMounted.current) {
+        setStatusMsg({
+          type: "error",
+          text: `Erro ao exportar para o Google Drive: ${e instanceof Error ? e.message : String(e)}`
+        });
+        setIsLoading(false);
+      }
     }
     // and skip remaining original code block by returning early
+    if (isMounted.current) {
+      setIsLoading(false);
+    }
     return;
 
     try {
@@ -791,7 +802,14 @@ export default function BackupManager({ onDataImported, isOpen, onClose }: Backu
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-2 sm:p-4 backdrop-blur-xs">
+    <div 
+      className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-2 sm:p-4 backdrop-blur-xs"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isLoading) {
+          onClose();
+        }
+      }}
+    >
       <div className="relative bg-white rounded-3xl max-w-md w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl p-5 sm:p-6 text-left animate-in fade-in zoom-in-95 duration-155">
         {/* Header bar */}
         <div className="flex justify-between items-center pb-3 border-b border-gray-100 mb-3 shrink-0">
